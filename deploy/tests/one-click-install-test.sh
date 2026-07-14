@@ -132,6 +132,31 @@ assert_eq \
 	"$(image_registry_url "ghcr.io/csbsgyl/ztnet-custom:latest")" \
 	"detects an explicit registry"
 
+ZTNET_IMAGE="$DEFAULT_ZTNET_IMAGE"
+ZTNET_MIRROR_IMAGE=""
+ZTNET_MIRROR_IMAGES=""
+ZTNET_MIRROR_IMAGES_PROVIDED=""
+configure_ztnet_mirror_images
+assert_eq \
+	"ghcr.nju.edu.cn/csbsgyl/ztnet-custom:latest,ghcr.dockerproxy.net/csbsgyl/ztnet-custom:latest,ghcr.1ms.run/csbsgyl/ztnet-custom:latest,ghcr.chenby.cn/csbsgyl/ztnet-custom:latest" \
+	"$ZTNET_MIRROR_IMAGES" \
+	"configures the verified GHCR mirror candidates"
+
+ZTNET_IMAGE="sinamics/ztnet:latest"
+ZTNET_MIRROR_IMAGES=""
+configure_ztnet_mirror_images
+assert_eq "" "$ZTNET_MIRROR_IMAGES" "does not apply fork mirrors to an overridden image"
+
+ZTNET_IMAGE="$DEFAULT_ZTNET_IMAGE"
+ZTNET_MIRROR_IMAGE="registry-user.example.com/ztnet-custom:latest"
+ZTNET_MIRROR_IMAGES="registry-a.example.com/ztnet-custom:latest,registry-b.example.com/ztnet-custom:latest"
+ZTNET_MIRROR_IMAGES_PROVIDED="x"
+configure_ztnet_mirror_images
+assert_eq \
+	"registry-user.example.com/ztnet-custom:latest,registry-a.example.com/ztnet-custom:latest,registry-b.example.com/ztnet-custom:latest" \
+	"$ZTNET_MIRROR_IMAGES" \
+	"prepends the legacy single mirror override"
+
 docker() {
 	return 1
 }
@@ -200,6 +225,48 @@ assert_eq \
 	"ghcr.io/csbsgyl/ztnet-custom:latest" \
 	"$ZTNET_IMAGE" \
 	"prefers a reachable source registry in auto mode"
+
+PULL_ATTEMPTS=""
+run_docker_pull() {
+	PULL_ATTEMPTS="${PULL_ATTEMPTS:+${PULL_ATTEMPTS},}$1"
+	[ "$1" = "mirror-b.example.com/ztnet-custom:latest" ]
+}
+ZTNET_IMAGE="ghcr.io/csbsgyl/ztnet-custom:latest"
+select_image \
+	"ZTNET_IMAGE" \
+	"$ZTNET_IMAGE" \
+	"mirror-a.example.com/ztnet-custom:latest, mirror-b.example.com/ztnet-custom:latest" \
+	"ZTNET_MIRROR_IMAGES" \
+	"true"
+assert_eq \
+	"mirror-b.example.com/ztnet-custom:latest" \
+	"$ZTNET_IMAGE" \
+	"selects the next ZTNET mirror after a failed candidate"
+assert_eq \
+	"mirror-a.example.com/ztnet-custom:latest,mirror-b.example.com/ztnet-custom:latest" \
+	"$PULL_ATTEMPTS" \
+	"tries ZTNET mirror candidates before the reachable source"
+
+PULL_ATTEMPTS=""
+run_docker_pull() {
+	PULL_ATTEMPTS="${PULL_ATTEMPTS:+${PULL_ATTEMPTS},}$1"
+	[ "$1" = "ghcr.io/csbsgyl/ztnet-custom:latest" ]
+}
+ZTNET_IMAGE="ghcr.io/csbsgyl/ztnet-custom:latest"
+select_image \
+	"ZTNET_IMAGE" \
+	"$ZTNET_IMAGE" \
+	"mirror-a.example.com/ztnet-custom:latest,mirror-a.example.com/ztnet-custom:latest" \
+	"ZTNET_MIRROR_IMAGES" \
+	"true"
+assert_eq \
+	"ghcr.io/csbsgyl/ztnet-custom:latest" \
+	"$ZTNET_IMAGE" \
+	"falls back to the source after all ZTNET mirrors fail"
+assert_eq \
+	"mirror-a.example.com/ztnet-custom:latest,ghcr.io/csbsgyl/ztnet-custom:latest" \
+	"$PULL_ATTEMPTS" \
+	"deduplicates mirror candidates before source fallback"
 
 DOCKER_MIRROR_MODE="always"
 probe_url() {

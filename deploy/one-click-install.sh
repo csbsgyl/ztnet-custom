@@ -9,12 +9,15 @@ NEXTAUTH_URL_PROVIDED="${NEXTAUTH_URL+x}"
 AUTO_UPDATE_PROVIDED="${AUTO_UPDATE+x}"
 AUTO_UPDATE_INTERVAL_PROVIDED="${AUTO_UPDATE_INTERVAL+x}"
 AUTO_UPDATE_CLEANUP_PROVIDED="${AUTO_UPDATE_CLEANUP+x}"
+ZTNET_MIRROR_IMAGES_PROVIDED="${ZTNET_MIRROR_IMAGES+x}"
 
 APP_NAME="${APP_NAME:-ztnet-custom}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
 HTTP_PORT="${HTTP_PORT:-3000}"
 APP_SUBNET="${APP_SUBNET:-172.31.255.0/29}"
-ZTNET_IMAGE="${ZTNET_IMAGE:-ghcr.io/csbsgyl/ztnet-custom:latest}"
+DEFAULT_ZTNET_IMAGE="ghcr.io/csbsgyl/ztnet-custom:latest"
+DEFAULT_ZTNET_MIRROR_IMAGES="ghcr.nju.edu.cn/csbsgyl/ztnet-custom:latest,ghcr.dockerproxy.net/csbsgyl/ztnet-custom:latest,ghcr.1ms.run/csbsgyl/ztnet-custom:latest,ghcr.chenby.cn/csbsgyl/ztnet-custom:latest"
+ZTNET_IMAGE="${ZTNET_IMAGE:-${DEFAULT_ZTNET_IMAGE}}"
 ZEROTIER_IMAGE="${ZEROTIER_IMAGE:-zyclonite/zerotier:1.14.2}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:15.2-alpine}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
@@ -28,6 +31,7 @@ DOCKER_MIRROR_URL="${DOCKER_MIRROR_URL:-https://docker.xiaohangyun.org}"
 DOCKER_PULL_TIMEOUT="${DOCKER_PULL_TIMEOUT:-0}"
 REGISTRY_PROBE_TIMEOUT="${REGISTRY_PROBE_TIMEOUT:-8}"
 ZTNET_MIRROR_IMAGE="${ZTNET_MIRROR_IMAGE:-}"
+ZTNET_MIRROR_IMAGES="${ZTNET_MIRROR_IMAGES:-}"
 ZEROTIER_MIRROR_IMAGE="${ZEROTIER_MIRROR_IMAGE:-}"
 POSTGRES_MIRROR_IMAGE="${POSTGRES_MIRROR_IMAGE:-}"
 AUTO_UPDATE="${AUTO_UPDATE:-true}"
@@ -242,6 +246,28 @@ mirror_image_for() {
 	printf '%s/%s' "$MIRROR_REGISTRY" "$path"
 }
 
+trim_whitespace() {
+	local value="$1"
+
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+	printf '%s' "$value"
+}
+
+configure_ztnet_mirror_images() {
+	if [ "$ZTNET_MIRROR_IMAGES_PROVIDED" != "x" ] && [ "$ZTNET_IMAGE" = "$DEFAULT_ZTNET_IMAGE" ]; then
+		ZTNET_MIRROR_IMAGES="$DEFAULT_ZTNET_MIRROR_IMAGES"
+	fi
+
+	if [ -n "$ZTNET_MIRROR_IMAGE" ]; then
+		if [ -n "$ZTNET_MIRROR_IMAGES" ]; then
+			ZTNET_MIRROR_IMAGES="${ZTNET_MIRROR_IMAGE},${ZTNET_MIRROR_IMAGES}"
+		else
+			ZTNET_MIRROR_IMAGES="$ZTNET_MIRROR_IMAGE"
+		fi
+	fi
+}
+
 run_docker_pull() {
 	local image="$1"
 	local status
@@ -265,24 +291,35 @@ run_docker_pull() {
 select_image() {
 	local variable_name="$1"
 	local direct_image="$2"
-	local explicit_mirror="$3"
+	local explicit_mirrors="$3"
 	local fallback_name="$4"
-	local mirror_image=""
+	local prefer_mirrors="${5:-false}"
+	local generated_mirror=""
 	local registry_url
 	local direct_reachable=1
-	local preferred_image
-	local alternate_image
+	local candidate
+	local existing
+	local seen
+	local -a raw_mirrors=()
+	local -a mirror_images=()
+	local -a candidates=()
+	local -a attempted=()
 
 	if [ "$DOCKER_MIRROR_MODE" != "never" ]; then
-		if [ -n "$explicit_mirror" ]; then
-			mirror_image="$explicit_mirror"
+		if [ -n "$explicit_mirrors" ]; then
+			IFS=',' read -r -a raw_mirrors <<< "$explicit_mirrors"
+			for candidate in "${raw_mirrors[@]}"; do
+				candidate="$(trim_whitespace "$candidate")"
+				if [ -n "$candidate" ] && [ "$candidate" != "$direct_image" ]; then
+					mirror_images+=("$candidate")
+				fi
+			done
 		elif [ "$MIRROR_AVAILABLE" -eq 1 ]; then
-			mirror_image="$(mirror_image_for "$direct_image" || true)"
+			generated_mirror="$(mirror_image_for "$direct_image" || true)"
+			if [ -n "$generated_mirror" ] && [ "$generated_mirror" != "$direct_image" ]; then
+				mirror_images+=("$generated_mirror")
+			fi
 		fi
-	fi
-
-	if [ "$mirror_image" = "$direct_image" ]; then
-		mirror_image=""
 	fi
 
 	if command_exists curl; then
@@ -293,34 +330,43 @@ select_image() {
 		fi
 	fi
 
-	preferred_image="$direct_image"
-	alternate_image="$mirror_image"
-	if [ -n "$mirror_image" ] && { [ "$DOCKER_MIRROR_MODE" = "always" ] || [ "$direct_reachable" -eq 0 ]; }; then
-		preferred_image="$mirror_image"
-		alternate_image="$direct_image"
+	if [ "${#mirror_images[@]}" -gt 0 ] && {
+		[ "$DOCKER_MIRROR_MODE" = "always" ] ||
+			[ "$direct_reachable" -eq 0 ] ||
+			[ "$prefer_mirrors" = "true" ]
+	}; then
+		candidates+=("${mirror_images[@]}")
+		candidates+=("$direct_image")
+	else
+		candidates+=("$direct_image")
+		candidates+=("${mirror_images[@]}")
 	fi
 
-	if run_docker_pull "$preferred_image"; then
-		printf -v "$variable_name" '%s' "$preferred_image"
-		return
-	fi
+	for candidate in "${candidates[@]}"; do
+		seen=0
+		for existing in "${attempted[@]}"; do
+			if [ "$candidate" = "$existing" ]; then
+				seen=1
+				break
+			fi
+		done
+		[ "$seen" -eq 1 ] && continue
 
-	warn "Image pull failed: ${preferred_image}"
-	if [ -n "$alternate_image" ] && run_docker_pull "$alternate_image"; then
-		printf -v "$variable_name" '%s' "$alternate_image"
-		return
-	fi
+		attempted+=("$candidate")
+		if run_docker_pull "$candidate"; then
+			printf -v "$variable_name" '%s' "$candidate"
+			return
+		fi
+		warn "Image pull failed: ${candidate}"
+	done
 
-	if docker image inspect "$preferred_image" >/dev/null 2>&1; then
-		warn "Using cached image after pull failure: ${preferred_image}"
-		printf -v "$variable_name" '%s' "$preferred_image"
-		return
-	fi
-	if [ -n "$alternate_image" ] && docker image inspect "$alternate_image" >/dev/null 2>&1; then
-		warn "Using cached image after pull failure: ${alternate_image}"
-		printf -v "$variable_name" '%s' "$alternate_image"
-		return
-	fi
+	for candidate in "${attempted[@]}"; do
+		if docker image inspect "$candidate" >/dev/null 2>&1; then
+			warn "Using cached image after pull failure: ${candidate}"
+			printf -v "$variable_name" '%s' "$candidate"
+			return
+		fi
+	done
 
 	fail "Unable to pull ${direct_image}. Set ${fallback_name} to a reachable registry copy or check registry connectivity."
 }
@@ -553,8 +599,9 @@ main() {
 	validate_auto_update
 	install_docker_if_needed
 	configure_mirror
+	configure_ztnet_mirror_images
 
-	select_image "ZTNET_IMAGE" "$ZTNET_IMAGE" "$ZTNET_MIRROR_IMAGE" "ZTNET_MIRROR_IMAGE"
+	select_image "ZTNET_IMAGE" "$ZTNET_IMAGE" "$ZTNET_MIRROR_IMAGES" "ZTNET_MIRROR_IMAGES" "true"
 	select_image "ZEROTIER_IMAGE" "$ZEROTIER_IMAGE" "$ZEROTIER_MIRROR_IMAGE" "ZEROTIER_MIRROR_IMAGE"
 	select_image "POSTGRES_IMAGE" "$POSTGRES_IMAGE" "$POSTGRES_MIRROR_IMAGE" "POSTGRES_MIRROR_IMAGE"
 	if [ "$AUTO_UPDATE" = "true" ]; then

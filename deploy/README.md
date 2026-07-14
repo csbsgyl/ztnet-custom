@@ -83,11 +83,23 @@ Old application images are retained by default for manual rollback. Set `AUTO_UP
 
 ## Registry acceleration
 
-The installer automatically probes each source registry and the configured mirror. It retries eligible Docker Hub pulls through `https://docker.xiaohangyun.org` and writes the selected image references into the generated Compose file.
+The installer uses separate acceleration paths for the application image and Docker Hub images.
+
+For the default application image, it tries these GHCR-compatible references in order before direct GHCR:
+
+1. `ghcr.nju.edu.cn/csbsgyl/ztnet-custom:latest`
+2. `ghcr.dockerproxy.net/csbsgyl/ztnet-custom:latest`
+3. `ghcr.1ms.run/csbsgyl/ztnet-custom:latest`
+4. `ghcr.chenby.cn/csbsgyl/ztnet-custom:latest`
+5. `ghcr.io/csbsgyl/ztnet-custom:latest`
+
+The four proxy references were verified against the official OCI index digest and an actual image layer on `2026-07-14`. The installer still treats the real `docker pull` result as authoritative and automatically continues to the next candidate after a failure. The selected reference is written into the generated Compose file, so the background updater checks the same reachable image source.
+
+Docker Hub images such as PostgreSQL, ZeroTier, and Watchtower retain automatic fallback through `https://docker.xiaohangyun.org`. This mirror is not used as a GHCR endpoint.
 
 Mirror modes:
 
-- `auto`: prefer a reachable source registry, then retry through the mirror after a probe or pull failure. This is the default.
+- `auto`: try the built-in ZTNET proxy list first; for Docker Hub images, use the configured mirror after a source probe or pull failure. This is the default.
 - `always`: try the mirror first, then fall back to the source registry.
 - `never`: disable mirror detection and use only the configured source images.
 
@@ -97,14 +109,15 @@ Force the supplied mirror to be tried first:
 curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env DOCKER_MIRROR_MODE=always bash
 ```
 
-The supplied mirror has been verified for Docker Hub images such as PostgreSQL and ZeroTier. It does not currently expose this fork's GHCR path. The installer therefore keeps direct GHCR as a fallback and supports an exact domestic copy through `ZTNET_MIRROR_IMAGE`:
+Override the complete ZTNET candidate list with a comma-separated value:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env \
-  DOCKER_MIRROR_MODE=always \
-  ZTNET_MIRROR_IMAGE=your-registry.example.com/ztnet-custom:latest \
+  ZTNET_MIRROR_IMAGES='registry-a.example.com/ztnet-custom:latest,registry-b.example.com/ztnet-custom:latest' \
   bash
 ```
+
+The legacy `ZTNET_MIRROR_IMAGE` option is still accepted and prepended to the candidate list. Setting `DOCKER_MIRROR_MODE=never` disables all proxy candidates. Overriding `ZTNET_IMAGE` also disables the built-in fork-specific list unless `ZTNET_MIRROR_IMAGES` is supplied explicitly.
 
 ## Common options
 
@@ -138,7 +151,8 @@ Supported environment variables:
 | `DOCKER_MIRROR_URL` | `https://docker.xiaohangyun.org` | Registry mirror used for automatic fallback. |
 | `DOCKER_PULL_TIMEOUT` | `0` | Maximum seconds for each `docker pull`; `0` allows slow image downloads to finish. |
 | `REGISTRY_PROBE_TIMEOUT` | `8` | Maximum seconds for each registry health probe. |
-| `ZTNET_MIRROR_IMAGE` | empty | Exact fallback image for the fork, useful when GHCR is unavailable. |
+| `ZTNET_MIRROR_IMAGES` | Four verified GHCR proxies | Comma-separated ZTNET image candidates, tried before the source image. |
+| `ZTNET_MIRROR_IMAGE` | empty | Legacy single candidate prepended to `ZTNET_MIRROR_IMAGES`. |
 | `ZEROTIER_MIRROR_IMAGE` | auto-generated | Override the mirror image selected for ZeroTier. |
 | `POSTGRES_MIRROR_IMAGE` | auto-generated | Override the mirror image selected for PostgreSQL. |
 | `AUTO_UPDATE` | `true` | Enable the scoped background updater for ZTNET only. |
@@ -168,13 +182,15 @@ curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/on
 
 Set `DOCKER_PULL_TIMEOUT` only when a hard total deadline is explicitly required. It is not a network-idle timeout.
 
+Candidate fallback begins after the current `docker pull` exits. If a broken network path can remain open forever, use a finite per-candidate deadline such as `DOCKER_PULL_TIMEOUT=600`; completed layers remain in Docker's content store for later attempts.
+
 ## Notes
 
 - `NEXTAUTH_URL` must match the URL users open in the browser. If the site is behind HTTPS, set it to the HTTPS URL.
 - Linux hosts must have `/dev/net/tun` available for ZeroTier.
 - The first registered user becomes the administrator.
 - Keep `.env` private. It contains the database password and auth secret.
-- The mirror is a third-party service. Change `DOCKER_MIRROR_URL` or use `DOCKER_MIRROR_MODE=never` if its trust or availability changes.
+- All acceleration endpoints are third-party services. Override `ZTNET_MIRROR_IMAGES`, change `DOCKER_MIRROR_URL`, or use `DOCKER_MIRROR_MODE=never` if their trust or availability changes.
 - `github.xiaohangyun.org` accelerates GitHub file downloads only. It is not a Docker Registry and does not replace the GHCR image URL.
 - The GitHub accelerator is a third-party download proxy. Its response is checked against the committed installer in CI, but operators should still use only accelerators they trust.
 - If the GitHub accelerator reports a self-signed certificate, use the direct `raw.githubusercontent.com` command or wait for the accelerator certificate to recover. Do not bypass TLS verification unless the downloaded script is checked against a trusted SHA-256 value.
