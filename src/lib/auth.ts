@@ -15,6 +15,7 @@ import { sendMailWithTemplate } from "~/utils/mail";
 import { MailTemplateKey } from "~/utils/enums";
 import { parse } from "cookie";
 import { randomBytes } from "crypto";
+import { normalizeEmail } from "~/utils/email";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const COOLDOWN_PERIOD = 1 * 60 * 1000; // 1 minute
@@ -75,7 +76,10 @@ export function mapOAuthProfileToUser(profile: Record<string, unknown>): {
 	email: string | undefined;
 	image: string | undefined;
 } {
-	const email = typeof profile.email === "string" ? (profile.email as string) : undefined;
+	const email =
+		typeof profile.email === "string"
+			? normalizeEmail(profile.email as string)
+			: undefined;
 	const pickStr = (key: string): string | undefined =>
 		typeof profile[key] === "string" ? (profile[key] as string) : undefined;
 	return {
@@ -158,11 +162,21 @@ export async function runBeforeAuthHook(ctx: any): Promise<void> {
 
 	if (ctx.path !== "/sign-in/email") return;
 
-	const email = (ctx.body as Record<string, unknown>)?.email as string;
+	const body = ctx.body as Record<string, unknown>;
+	const submittedEmail = body?.email as string;
+	if (!submittedEmail) return;
+
+	const email = normalizeEmail(submittedEmail);
 	if (!email) return;
+	body.email = email;
 
 	const user = await prisma.user.findFirst({
-		where: { email },
+		where: {
+			email: {
+				equals: email,
+				mode: "insensitive",
+			},
+		},
 	});
 
 	if (!user) return; // let better-auth handle "user not found"
@@ -195,6 +209,15 @@ export async function runBeforeAuthHook(ctx: any): Promise<void> {
 			// Don't throw — let better-auth produce its standard "invalid credentials"
 			// error so the response shape is identical to a missing-account error.
 			return;
+		}
+
+		// better-auth always looks users up by a lower-case email. Repair accounts
+		// created before email normalization so this same request can continue.
+		if (user.email !== email) {
+			await prisma.user.update({
+				where: { id: user.id },
+				data: { email },
+			});
 		}
 	}
 
@@ -451,6 +474,7 @@ export async function onUserCreateBefore(
 	return {
 		data: {
 			...user,
+			...(typeof user.email === "string" ? { email: normalizeEmail(user.email) } : {}),
 			role: userCount === 0 ? "ADMIN" : "USER",
 			lastLogin: new Date(),
 			firstTime: true,

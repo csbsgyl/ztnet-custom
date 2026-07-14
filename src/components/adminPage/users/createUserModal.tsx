@@ -44,7 +44,7 @@ const CreateUserModal = () => {
 
 	const { mutate: createUser, isLoading: isCreating } = api.admin.createUser.useMutation({
 		onError: handleApiError,
-		onSuccess: () => {
+		onSuccess: (newUser) => {
 			// Refetch users and show success message
 			refetchUsers();
 			toast.success(t("users.users.createUser.toast.createUserSuccess"));
@@ -54,10 +54,10 @@ const CreateUserModal = () => {
 				(org) => org.id === formData.organizationId,
 			);
 			setCreatedUser({
-				name: formData.name.trim(),
-				email: formData.email.trim(),
+				name: newUser.name,
+				email: newUser.email,
 				password: formData.password,
-				role: formData.role,
+				role: newUser.role,
 				organizationName: selectedOrg?.orgName,
 				organizationRole: formData.organizationId ? formData.organizationRole : undefined,
 			});

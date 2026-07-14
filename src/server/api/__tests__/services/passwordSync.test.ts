@@ -39,7 +39,7 @@ jest.mock("~/utils/ztApi", () => ({
 
 import { appRouter } from "../../root";
 import type { Session } from "~/lib/authTypes";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Role } from "@prisma/client";
 import { type PartialDeep } from "type-fest";
 import { upsertCredentialAccount } from "~/server/api/services/credentialAccountService";
 import bcrypt from "bcryptjs";
@@ -171,12 +171,61 @@ describe("auth router password mutations sync Account.password", () => {
 		});
 
 		await caller.auth.register({
-			email: "new@example.com",
+			email: "New@Example.COM",
 			password: "BrandNew123!",
 			name: "New",
 		});
 
+		expect(prisma.user.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({ email: "new@example.com" }),
+			}),
+		);
 		expect(upsertCredentialAccount).toHaveBeenCalledTimes(1);
 		expect(mockedUpsert.mock.calls[0][0]).toBe("user_new");
+		expect(mockedUpsert.mock.calls[0][2]).toBe(prisma);
+	});
+
+	test("admin.createUser normalizes email and stores the generated password for login", async () => {
+		const prisma = makePrismaMock({}) as PrismaClient;
+		prisma.user.findFirst = jest.fn().mockResolvedValue(null) as never;
+		prisma.user.create = jest.fn().mockResolvedValue({
+			id: "user_admin_created",
+			name: "Heodel",
+			email: "heodel@163.com",
+			role: Role.USER,
+			userGroupId: null,
+			expiresAt: null,
+			requestChangePassword: false,
+			createdAt: new Date(),
+		}) as never;
+
+		const caller = appRouter.createCaller({
+			session: {
+				...session,
+				user: { ...session.user, role: Role.ADMIN },
+			} as Session,
+			wss: null,
+			prisma,
+			res: { setHeader: jest.fn() } as never,
+			req: { headers: {} } as never,
+		});
+		const password = "!xxB1Yl6L55$";
+
+		await caller.admin.createUser({
+			name: "Heodel",
+			email: "Heodel@163.COM",
+			password,
+			role: Role.USER,
+		});
+
+		const createArgs = (prisma.user.create as jest.Mock).mock.calls[0][0];
+		expect(createArgs.data.email).toBe("heodel@163.com");
+		expect(bcrypt.compareSync(password, createArgs.data.hash)).toBe(true);
+		expect(upsertCredentialAccount).toHaveBeenCalledWith(
+			"user_admin_created",
+			createArgs.data.hash,
+			prisma,
+		);
 	});
 });

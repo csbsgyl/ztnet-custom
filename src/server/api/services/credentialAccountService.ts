@@ -1,4 +1,7 @@
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "~/server/db";
+
+type CredentialAccountClient = Pick<PrismaClient, "account">;
 
 /**
  * Keep `Account` (better-auth's credential store, where `providerId="credential"`)
@@ -14,8 +17,9 @@ import { prisma } from "~/server/db";
 export async function upsertCredentialAccount(
 	userId: string,
 	passwordHash: string,
+	client: CredentialAccountClient = prisma,
 ): Promise<void> {
-	await prisma.account.upsert({
+	await client.account.upsert({
 		where: {
 			providerId_accountId: {
 				providerId: "credential",

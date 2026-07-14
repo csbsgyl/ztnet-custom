@@ -192,6 +192,44 @@ describe("failed-password bookkeeping", () => {
 });
 
 describe("credential Account backfill", () => {
+	it("normalizes login email and repairs an existing mixed-case account", async () => {
+		const ctx = makeCtx({ email: "  Heodel@163.com  ", password: "!xxB1Yl6L55$" });
+		(prisma.user.findFirst as jest.Mock).mockResolvedValue({
+			id: "u1",
+			email: "Heodel@163.com",
+			hash: "$2a$10$existing",
+			failedLoginAttempts: 0,
+			lastFailedLoginAttempt: null,
+			twoFactorEnabled: false,
+		});
+		(compare as jest.Mock).mockResolvedValue(true);
+		(prisma.account.findFirst as jest.Mock).mockResolvedValue(null);
+
+		await runBeforeAuthHook(ctx);
+
+		expect(ctx.body.email).toBe("heodel@163.com");
+		expect(prisma.user.findFirst).toHaveBeenCalledWith({
+			where: {
+				email: {
+					equals: "heodel@163.com",
+					mode: "insensitive",
+				},
+			},
+		});
+		expect(prisma.user.update).toHaveBeenCalledWith({
+			where: { id: "u1" },
+			data: { email: "heodel@163.com" },
+		});
+		expect(prisma.account.create).toHaveBeenCalledWith({
+			data: {
+				userId: "u1",
+				accountId: "u1",
+				providerId: "credential",
+				password: "$2a$10$existing",
+			},
+		});
+	});
+
 	it("creates the credential Account row on first login if it's missing (next-auth migration safety net)", async () => {
 		(prisma.user.findFirst as jest.Mock).mockResolvedValue({
 			id: "u1",

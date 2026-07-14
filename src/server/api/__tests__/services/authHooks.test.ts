@@ -76,6 +76,18 @@ describe("onUserCreateBefore", () => {
 		expect(result.data.role).toBe("USER");
 	});
 
+	it("normalizes email addresses before better-auth stores the user", async () => {
+		(prisma.user.count as jest.Mock).mockResolvedValue(1);
+		(prisma.userGroup.findFirst as jest.Mock).mockResolvedValue(null);
+
+		const result = await onUserCreateBefore(
+			{ ...baseUser, email: "  Heodel@163.COM  " },
+			{ path: "/sign-up/email" },
+		);
+
+		expect(result.data.email).toBe("heodel@163.com");
+	});
+
 	it("attaches the default user group when one exists", async () => {
 		(prisma.user.count as jest.Mock).mockResolvedValue(2);
 		(prisma.userGroup.findFirst as jest.Mock).mockResolvedValue({ id: 42 });

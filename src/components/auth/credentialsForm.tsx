@@ -8,6 +8,7 @@ import TOTPInput from "./totpInput";
 import FormSubmitButtons from "./formSubmitButton";
 import FormInput from "./formInput";
 import { useTranslations } from "next-intl";
+import { normalizeEmail } from "~/utils/email";
 
 interface FormData {
 	email: string;
@@ -40,7 +41,7 @@ const CredentialsForm: React.FC = () => {
 
 		try {
 			const { data, error } = await authClient.signIn.email({
-				email: formData.email,
+				email: normalizeEmail(formData.email),
 				password: formData.password,
 				fetchOptions: {
 					headers: {

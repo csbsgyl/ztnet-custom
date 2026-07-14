@@ -87,7 +87,7 @@ const RegisterOrganizationInviteForm: React.FC<Iprops> = ({
 				const orgId = user?.memberOfOrgs?.[0]?.id;
 				void (async () => {
 					const { data } = await authClient.signIn.email({
-						email: formData.email,
+						email: user.email,
 						password: formData.password,
 					});
 					setLoading(false);

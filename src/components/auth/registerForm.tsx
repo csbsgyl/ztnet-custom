@@ -6,6 +6,7 @@ import { authClient } from "~/lib/authClient";
 import FormInput from "./formInput";
 import FormSubmitButtons from "./formSubmitButton";
 import { useTranslations } from "next-intl";
+import { normalizeEmail } from "~/utils/email";
 interface FormData {
 	email: string;
 	password: string;
@@ -46,7 +47,7 @@ const RegisterForm: React.FC = () => {
 			onSuccess: () =>
 				void (async () => {
 					const { data } = await authClient.signIn.email({
-						email: formData.email,
+						email: normalizeEmail(formData.email),
 						password: formData.password,
 					});
 					setLoading(false);
