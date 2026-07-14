@@ -16,6 +16,7 @@ import { MailTemplateKey } from "~/utils/enums";
 import { parse } from "cookie";
 import { randomBytes } from "crypto";
 import { normalizeEmail } from "~/utils/email";
+import { getRequestTrustedOrigins } from "~/server/authTrustedOrigins";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const COOLDOWN_PERIOD = 1 * 60 * 1000; // 1 minute
@@ -492,6 +493,9 @@ export const auth = betterAuth({
 	// Backward compat: use existing NEXTAUTH_SECRET and NEXTAUTH_URL env vars
 	secret: process.env.NEXTAUTH_SECRET,
 	baseURL: process.env.NEXTAUTH_URL,
+	// Keep the canonical baseURL for callbacks while accepting the exact external
+	// origin represented by validated reverse-proxy headers on this request.
+	trustedOrigins: getRequestTrustedOrigins,
 
 	session: {
 		expiresIn:

@@ -212,7 +212,7 @@ Candidate fallback begins after the current `docker pull` exits. If a broken net
 
 ## Notes
 
-- `NEXTAUTH_URL` must match the URL users open in the browser. If the site is behind HTTPS, set it to the HTTPS URL.
+- `NEXTAUTH_URL` should be the preferred public URL used for OAuth callbacks and generated links. Credential sign-in also accepts the exact same-origin domain forwarded by a reverse proxy through `Host`, `X-Forwarded-Host`, and `X-Forwarded-Proto`.
 - Linux hosts must have `/dev/net/tun` available for ZeroTier.
 - The first registered user becomes the administrator.
 - Keep `.env` private. It contains the database password and auth secret.

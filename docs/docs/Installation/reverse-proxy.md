@@ -1,8 +1,8 @@
 ---
 id: reverse-proxy
-title: Reverse Proxy (WebSocket)
+title: Reverse Proxy
 slug: /installation/reverse-proxy
-description: Forward WebSocket connections so ZTNET live updates work behind a reverse proxy.
+description: Configure authentication and live WebSocket updates behind a reverse proxy.
 sidebar_position: 5
 ---
 
@@ -12,7 +12,13 @@ sidebar_position: 5
 Live updates over WebSocket were introduced in **v0.8.0**. On earlier versions this page doesn't apply.
 :::
 
-ZTNET pushes live updates (member status, network changes) to the browser over a **WebSocket** (Socket.IO, served on `/socket.io/`). Behind a reverse proxy, that connection only works if the proxy forwards the **WebSocket upgrade**. If it doesn't, the UI still works but falls back to periodic polling (~20s) instead of instant updates.
+ZTNET validates the browser origin during authentication and pushes live updates (member status, network changes) over a **WebSocket** (Socket.IO, served on `/socket.io/`). A reverse proxy must preserve the public host and protocol as well as forward the WebSocket upgrade.
+
+## Authentication origin
+
+ZTNET automatically accepts the exact public origin represented by `Host`, `X-Forwarded-Host`, and `X-Forwarded-Proto`. The proxy must overwrite these headers rather than append untrusted client values. Otherwise sign-in can fail with `Invalid origin`.
+
+Keep `NEXTAUTH_URL` set to the preferred public URL because OAuth callbacks and links generated outside an HTTP request still use it.
 
 ## Verify
 
@@ -31,6 +37,8 @@ location / {
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
 
@@ -39,11 +47,12 @@ location / {
 Enable the modules, then add the rewrite to your vhost:
 
 ```bash
-a2enmod proxy proxy_http proxy_wstunnel rewrite
+a2enmod proxy proxy_http proxy_wstunnel rewrite headers
 ```
 
 ```apache
 ProxyPreserveHost On
+RequestHeader set X-Forwarded-Proto "https"
 
 # Tunnel the WebSocket upgrade to the ws:// backend
 RewriteEngine On
@@ -57,7 +66,7 @@ ProxyPassReverse /  http://127.0.0.1:3000/
 
 ### Caddy & Traefik
 
-Both forward WebSockets automatically — no extra configuration needed.
+Both forward the host, protocol, and WebSockets automatically — no extra configuration is normally needed.
 
 ```
 your.domain {
