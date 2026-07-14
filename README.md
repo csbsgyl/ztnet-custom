@@ -35,6 +35,14 @@ ZTNET - ZeroTier Controller Web UI is a robust and versatile application designe
 
 With a rich palette of features, and an intuitive user interface, ZTNET embodies a paradigm shift in network management experience. It elegantly handles the complexity, letting you focus on what you do best.
 
+## Secondary Development Fork
+
+This repository is prepared as a secondary-development fork of [sinamics/ztnet](https://github.com/sinamics/ztnet). Keep upstream attribution and the GPL-3.0 license when publishing or distributing this fork.
+
+- Secondary-development notes: [SECONDARY_DEVELOPMENT.md](SECONDARY_DEVELOPMENT.md)
+- One-click deployment: [deploy/README.md](deploy/README.md)
+- Deployment script: [deploy/one-click-install.sh](deploy/one-click-install.sh)
+
 ### [See Installation Instruction](https://ztnet.network/installation/docker-compose)
 
 ## 📷 Images
