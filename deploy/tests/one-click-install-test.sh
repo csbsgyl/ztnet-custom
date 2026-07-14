@@ -136,6 +136,30 @@ docker() {
 	return 1
 }
 
+timeout() {
+	return 124
+}
+DOCKER_PULL_TIMEOUT="5"
+if run_docker_pull "example.invalid/slow:latest" >/dev/null 2>&1; then
+	printf 'FAIL: accepted a timed-out image pull\n' >&2
+	exit 1
+else
+	assert_eq "124" "$?" "returns the timeout exit status"
+fi
+
+timeout() {
+	return 99
+}
+docker() {
+	[ "$1" = "pull" ] && [ "$2" = "example.invalid/slow:latest" ]
+}
+DOCKER_PULL_TIMEOUT="0"
+run_docker_pull "example.invalid/slow:latest" >/dev/null
+
+docker() {
+	return 1
+}
+
 DOCKER_MIRROR_MODE="auto"
 MIRROR_AVAILABLE=1
 probe_url() {

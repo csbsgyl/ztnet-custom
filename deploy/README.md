@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/on
 For a mainland China server, download the same script through the GitHub accelerator:
 
 ```bash
-curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
 ```
 
 To try GitHub directly first and safely fall back to the accelerator, run this block as one command:
@@ -36,7 +36,7 @@ To try GitHub directly first and safely fall back to the accelerator, run this b
   direct_url="https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh"
   accelerated_url="https://github.xiaohangyun.org/${direct_url}"
   download() {
-    curl -fsSL --connect-timeout 8 --max-time 60 "$1" -o "$installer" &&
+    curl --retry 2 --retry-all-errors -fsSL --connect-timeout 8 --max-time 60 "$1" -o "$installer" &&
       head -n 1 "$installer" | grep -qx '#!/usr/bin/env bash'
   }
   download "$direct_url" || download "$accelerated_url"
@@ -57,7 +57,7 @@ Automatic ZTNET updates are enabled by default. The updater checks the configure
 Existing installations need to run the installer once to add the background updater. Existing database credentials, auth secrets, public URL, and update settings are preserved:
 
 ```bash
-curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
 ```
 
 After that one-time command, future application releases are detected and installed in the background. View updater activity with:
@@ -70,13 +70,13 @@ docker compose logs -f updater
 Change the polling interval to ten minutes:
 
 ```bash
-curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE_INTERVAL=600 bash
+curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE_INTERVAL=600 bash
 ```
 
 Disable background updates and remove the updater container:
 
 ```bash
-curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE=false bash
+curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE=false bash
 ```
 
 Old application images are retained by default for manual rollback. Set `AUTO_UPDATE_CLEANUP=true` only when automatic removal of replaced images is preferred.
@@ -136,7 +136,7 @@ Supported environment variables:
 | `INSTALL_DOCKER` | `auto` | If Docker is missing, install it via `get.docker.com`. Set `0` to disable. |
 | `DOCKER_MIRROR_MODE` | `auto` | Registry strategy: `auto`, `always`, or `never`. |
 | `DOCKER_MIRROR_URL` | `https://docker.xiaohangyun.org` | Registry mirror used for automatic fallback. |
-| `DOCKER_PULL_TIMEOUT` | `300` | Maximum seconds for each `docker pull`; set `0` to disable the timeout. |
+| `DOCKER_PULL_TIMEOUT` | `0` | Maximum seconds for each `docker pull`; `0` allows slow image downloads to finish. |
 | `REGISTRY_PROBE_TIMEOUT` | `8` | Maximum seconds for each registry health probe. |
 | `ZTNET_MIRROR_IMAGE` | empty | Exact fallback image for the fork, useful when GHCR is unavailable. |
 | `ZEROTIER_MIRROR_IMAGE` | auto-generated | Override the mirror image selected for ZeroTier. |
@@ -158,6 +158,16 @@ docker compose pull
 docker compose up -d
 ```
 
+## Troubleshooting slow pulls
+
+Installer versions before `2026-07-14` stopped a `docker pull` after 300 seconds even when layers were still downloading. The current installer has no total pull deadline by default. Rerun it and Docker will reuse already downloaded layers:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+```
+
+Set `DOCKER_PULL_TIMEOUT` only when a hard total deadline is explicitly required. It is not a network-idle timeout.
+
 ## Notes
 
 - `NEXTAUTH_URL` must match the URL users open in the browser. If the site is behind HTTPS, set it to the HTTPS URL.
@@ -167,6 +177,7 @@ docker compose up -d
 - The mirror is a third-party service. Change `DOCKER_MIRROR_URL` or use `DOCKER_MIRROR_MODE=never` if its trust or availability changes.
 - `github.xiaohangyun.org` accelerates GitHub file downloads only. It is not a Docker Registry and does not replace the GHCR image URL.
 - The GitHub accelerator is a third-party download proxy. Its response is checked against the committed installer in CI, but operators should still use only accelerators they trust.
+- If the GitHub accelerator reports a self-signed certificate, use the direct `raw.githubusercontent.com` command or wait for the accelerator certificate to recover. Do not bypass TLS verification unless the downloaded script is checked against a trusted SHA-256 value.
 - Automatic updates require mounting `/var/run/docker.sock` into the updater, which grants Docker daemon control. The updater is scoped and label-restricted to the ZTNET application container.
 - Automatic updates require a mutable image tag such as `latest`; digest-pinned images intentionally do not move to newer releases.
 - Keep database backups. Application releases may include database migrations even though the PostgreSQL container itself is not updated.

@@ -25,7 +25,7 @@ NEXTAUTH_URL="${NEXTAUTH_URL:-}"
 INSTALL_DOCKER="${INSTALL_DOCKER:-auto}"
 DOCKER_MIRROR_MODE="${DOCKER_MIRROR_MODE:-auto}"
 DOCKER_MIRROR_URL="${DOCKER_MIRROR_URL:-https://docker.xiaohangyun.org}"
-DOCKER_PULL_TIMEOUT="${DOCKER_PULL_TIMEOUT:-300}"
+DOCKER_PULL_TIMEOUT="${DOCKER_PULL_TIMEOUT:-0}"
 REGISTRY_PROBE_TIMEOUT="${REGISTRY_PROBE_TIMEOUT:-8}"
 ZTNET_MIRROR_IMAGE="${ZTNET_MIRROR_IMAGE:-}"
 ZEROTIER_MIRROR_IMAGE="${ZEROTIER_MIRROR_IMAGE:-}"
@@ -244,10 +244,19 @@ mirror_image_for() {
 
 run_docker_pull() {
 	local image="$1"
+	local status
 
 	info "Pulling image: ${image}"
 	if command_exists timeout && [ "$DOCKER_PULL_TIMEOUT" -gt 0 ]; then
-		timeout "$DOCKER_PULL_TIMEOUT" docker pull "$image"
+		if timeout "$DOCKER_PULL_TIMEOUT" docker pull "$image"; then
+			return
+		else
+			status=$?
+			if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+				warn "Image pull exceeded DOCKER_PULL_TIMEOUT=${DOCKER_PULL_TIMEOUT} seconds."
+			fi
+			return "$status"
+		fi
 	else
 		docker pull "$image"
 	fi
