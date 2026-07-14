@@ -18,6 +18,31 @@ Use the public image built from this fork:
 curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
 ```
 
+For a mainland China server, download the same script through the GitHub accelerator:
+
+```bash
+curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+```
+
+To try GitHub directly first and safely fall back to the accelerator, run this block as one command:
+
+```bash
+(
+  set -Eeuo pipefail
+  installer="$(mktemp)"
+  cleanup() { rm -f "$installer"; }
+  trap cleanup EXIT
+  direct_url="https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh"
+  accelerated_url="https://github.xiaohangyun.org/${direct_url}"
+  download() {
+    curl -fsSL --connect-timeout 8 --max-time 60 "$1" -o "$installer" &&
+      head -n 1 "$installer" | grep -qx '#!/usr/bin/env bash'
+  }
+  download "$direct_url" || download "$accelerated_url"
+  sudo bash "$installer"
+)
+```
+
 To deploy the unmodified upstream image with this installer instead:
 
 ```bash
@@ -102,4 +127,6 @@ docker compose up -d
 - The first registered user becomes the administrator.
 - Keep `.env` private. It contains the database password and auth secret.
 - The mirror is a third-party service. Change `DOCKER_MIRROR_URL` or use `DOCKER_MIRROR_MODE=never` if its trust or availability changes.
+- `github.xiaohangyun.org` accelerates GitHub file downloads only. It is not a Docker Registry and does not replace the GHCR image URL.
+- The GitHub accelerator is a third-party download proxy. Its response is checked against the committed installer in CI, but operators should still use only accelerators they trust.
 - If you prefer manual deployment, copy `deploy/docker-compose.yml` and create a `.env` file from the variable list above.

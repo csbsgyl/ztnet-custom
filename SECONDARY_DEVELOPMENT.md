@@ -47,6 +47,8 @@ For an SSH remote:
 
 The one-click installer automatically detects registry connectivity and can fall back to `https://docker.xiaohangyun.org` for Docker Hub images. Because that mirror does not currently proxy the fork's GHCR path, use `ZTNET_MIRROR_IMAGE` when an exact copy is published to a domestic registry.
 
+GitHub source and Raw downloads can use `https://github.xiaohangyun.org/<original-url>`. The deployment guide includes both an accelerator-only command and a direct-first download block that validates the script before execution.
+
 ## Container image
 
 This fork includes a GHCR workflow at `.github/workflows/ghcr-image.yml`.

@@ -32,6 +32,22 @@ jobs:
       - name: Check installer syntax
         run: bash -n deploy/one-click-install.sh
 
+      - name: Verify GitHub accelerator
+        env:
+          ACCELERATED_SCRIPT_URL: https://github.xiaohangyun.org/https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/deploy/one-click-install.sh
+        run: |
+          accelerated_script="$(mktemp)"
+          trap 'rm -f "$accelerated_script"' EXIT
+          for attempt in 1 2 3; do
+            if curl -fsSL --connect-timeout 8 --max-time 30 "$ACCELERATED_SCRIPT_URL" -o "$accelerated_script" &&
+              cmp -s deploy/one-click-install.sh "$accelerated_script"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "GitHub accelerator did not return the committed installer." >&2
+          exit 1
+
       - name: Test installer mirror selection
         run: bash deploy/tests/one-click-install-test.sh
 
