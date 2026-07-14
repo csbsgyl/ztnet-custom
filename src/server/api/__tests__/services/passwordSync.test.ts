@@ -186,7 +186,7 @@ describe("auth router password mutations sync Account.password", () => {
 		expect(mockedUpsert.mock.calls[0][2]).toBe(prisma);
 	});
 
-	test("admin.createUser normalizes email and stores the generated password for login", async () => {
+	test("admin.createUser accepts lowercase email and stores the generated password for login", async () => {
 		const prisma = makePrismaMock({}) as PrismaClient;
 		prisma.user.findFirst = jest.fn().mockResolvedValue(null) as never;
 		prisma.user.create = jest.fn().mockResolvedValue({
@@ -214,7 +214,7 @@ describe("auth router password mutations sync Account.password", () => {
 
 		await caller.admin.createUser({
 			name: "Heodel",
-			email: "Heodel@163.COM",
+			email: "heodel@163.com",
 			password,
 			role: Role.USER,
 		});
@@ -227,5 +227,34 @@ describe("auth router password mutations sync Account.password", () => {
 			createArgs.data.hash,
 			prisma,
 		);
+	});
+
+	test("admin.createUser rejects email containing uppercase letters before database access", async () => {
+		const prisma = makePrismaMock({}) as PrismaClient;
+		prisma.user.findFirst = jest.fn().mockResolvedValue(null) as never;
+
+		const caller = appRouter.createCaller({
+			session: {
+				...session,
+				user: { ...session.user, role: Role.ADMIN },
+			} as Session,
+			wss: null,
+			prisma,
+			res: { setHeader: jest.fn() } as never,
+			req: { headers: {} } as never,
+		});
+
+		await expect(
+			caller.admin.createUser({
+				name: "Heodel",
+				email: "Heodel@163.com",
+				password: "!xxB1Yl6L55$",
+				role: Role.USER,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+		expect(prisma.user.findFirst).not.toHaveBeenCalled();
+		expect(prisma.user.create).not.toHaveBeenCalled();
+		expect(upsertCredentialAccount).not.toHaveBeenCalled();
 	});
 });

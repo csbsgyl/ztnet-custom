@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { useModalStore } from "~/utils/store";
 import { useTranslations } from "next-intl";
 import { useTrpcApiErrorHandler } from "~/hooks/useTrpcApiHandler";
+import { hasUppercaseEmail } from "~/utils/email";
 
 const CreateUserModal = () => {
 	const t = useTranslations("admin");
@@ -30,6 +31,7 @@ const CreateUserModal = () => {
 		organizationName?: string;
 		organizationRole?: string;
 	} | null>(null);
+	const emailHasUppercase = hasUppercaseEmail(formData.email);
 
 	// Fetch user groups for the dropdown
 	const { data: userGroups } = api.admin.getUserGroups.useQuery();
@@ -160,6 +162,10 @@ Organization Role: ${createdUser.organizationRole}`;
 		}
 		if (!formData.email.trim()) {
 			toast.error("Email is required");
+			return;
+		}
+		if (emailHasUppercase) {
+			toast.error(t("users.users.createUser.emailLowercaseError"));
 			return;
 		}
 		if (!formData.password.trim()) {
@@ -315,20 +321,38 @@ Organization Role: ${createdUser.organizationRole}`;
 
 							{/* Email Field */}
 							<div className="form-control">
-								<label className="label">
+								<label htmlFor="create-user-email" className="label">
 									<span className="label-text font-medium">
 										{t("users.users.createUser.emailLabel")}
 									</span>
 								</label>
 								<input
+									id="create-user-email"
 									type="email"
 									value={formData.email}
 									onChange={(e) => setFormData({ ...formData, email: e.target.value })}
 									placeholder={t("users.users.createUser.emailPlaceholder")}
-									className="input input-bordered input-sm w-full"
+									className={`input input-bordered input-sm w-full ${
+										emailHasUppercase ? "input-error" : ""
+									}`}
+									autoCapitalize="none"
+									spellCheck={false}
+									aria-invalid={emailHasUppercase}
+									aria-describedby={
+										emailHasUppercase
+											? "create-user-email-error create-user-email-description"
+											: "create-user-email-description"
+									}
 									required
 								/>
-								<label className="label">
+								{emailHasUppercase && (
+									<p id="create-user-email-error" className="label pb-0" role="alert">
+										<span className="label-text-alt text-error">
+											{t("users.users.createUser.emailLowercaseError")}
+										</span>
+									</p>
+								)}
+								<label id="create-user-email-description" className="label">
 									<span className="label-text-alt text-gray-500">
 										{t("users.users.createUser.emailDescription")}
 									</span>
@@ -536,7 +560,7 @@ Organization Role: ${createdUser.organizationRole}`;
 						<button
 							type="submit"
 							className="btn btn-primary btn-sm"
-							disabled={isCreating}
+							disabled={isCreating || emailHasUppercase}
 						>
 							{isCreating ? (
 								<span className="loading loading-spinner loading-sm"></span>
