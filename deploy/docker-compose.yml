@@ -50,6 +50,11 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:?NEXTAUTH_URL is required}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required}
       NEXTAUTH_URL_INTERNAL: http://ztnet:3000
+      AUTO_UPDATE: ${AUTO_UPDATE:-true}
+      AUTO_UPDATE_INTERVAL: ${AUTO_UPDATE_INTERVAL:-3600}
+      ZTNET_IMAGE: ${ZTNET_IMAGE:-ghcr.io/csbsgyl/ztnet-custom:latest}
+      UPDATE_API_URL: ${UPDATE_API_URL:-http://updater:8080}
+      UPDATE_API_TOKEN: ${UPDATE_API_TOKEN:?UPDATE_API_TOKEN is required}
     networks:
       - app-network
     labels:
@@ -68,10 +73,16 @@ services:
       WATCHTOWER_SCOPE: "${APP_NAME:-ztnet-custom}"
       WATCHTOWER_POLL_INTERVAL: "${AUTO_UPDATE_INTERVAL:-3600}"
       WATCHTOWER_CLEANUP: "${AUTO_UPDATE_CLEANUP:-false}"
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_PERIODIC_POLLS: "true"
+      WATCHTOWER_HTTP_API_METRICS: "true"
+      WATCHTOWER_HTTP_API_TOKEN: ${UPDATE_API_TOKEN:?UPDATE_API_TOKEN is required}
     labels:
       com.centurylinklabs.watchtower.scope: "${APP_NAME:-ztnet-custom}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - app-network
 
 volumes:
   zerotier:

@@ -133,6 +133,7 @@
 		"controller": "ZT Controller",
 		"organization": "Organization",
 		"backuprestore": "Backup & Restore",
+		"systemUpdate": "System Update",
 		"account": "Account",
 		"user-settings": "User Settings",
 		"logout": "Logout"
@@ -491,6 +492,39 @@
 		}
 	},
 	"admin": {
+		"systemUpdate": {
+			"statusTitle": "Version status",
+			"state": {
+				"available": "A newer image build is available.",
+				"current": "This deployment is running the latest image build.",
+				"unknown": "The latest image build could not be compared with this deployment."
+			},
+			"currentBuild": "Current build",
+			"latestBuild": "Latest image build",
+			"imageSource": "Image source",
+			"lastChecked": "Last checked",
+			"checkNow": "Check now",
+			"installNow": "Check and install",
+			"automationTitle": "Update automation",
+			"automaticUpdates": "Automatic updates",
+			"checkInterval": "Check interval",
+			"updaterConnection": "Updater connection",
+			"enabled": "Enabled",
+			"disabled": "Disabled",
+			"unknown": "Unknown",
+			"hours": "{count, plural, one {# hour} other {# hours}}",
+			"minutes": "{count, plural, one {# minute} other {# minutes}}",
+			"seconds": "{count, plural, one {# second} other {# seconds}}",
+			"connection": {
+				"connected": "Connected",
+				"error": "Connection error",
+				"unavailable": "Not configured"
+			},
+			"configurationRequired": "Manual update control is unavailable. Run the current one-click installer once to add the private updater API.",
+			"confirmTitle": "Check and install updates",
+			"confirmDescription": "ZTNET will check the configured image source and replace only the application container when a newer image is available. The page may disconnect briefly.",
+			"updateRequested": "Update check started. ZTNET will restart only if a newer image is available."
+		},
 		"settings": {
 			"application": {
 				"title": "Application",

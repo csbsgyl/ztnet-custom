@@ -14,6 +14,7 @@ import MetaTags from "~/components/shared/metaTags";
 import Link from "next/link";
 import { api } from "~/utils/api";
 import BackupRestore from "./backuprestore";
+import SystemUpdate from "./system-update";
 
 const AdminSettings = ({ orgIds }) => {
 	const { data: globalOptions } = api.settings.getAllOptions.useQuery();
@@ -65,6 +66,11 @@ const AdminSettings = ({ orgIds }) => {
 			name: t("backuprestore"),
 			value: "backup-restore",
 			component: <BackupRestore />,
+		},
+		{
+			name: t("systemUpdate"),
+			value: "system-update",
+			component: <SystemUpdate />,
 		},
 	];
 

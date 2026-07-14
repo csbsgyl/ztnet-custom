@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useSidebarStore, useSocketStore } from "~/utils/store";
 import { api } from "~/utils/api";
+import { ArrowPathIcon } from "@heroicons/react/24/outline";
 
 // Custom hook to check if the screen width is below the 'md' breakpoint
 const useIsBelowMd = () => {
@@ -234,7 +235,7 @@ const Sidebar = (): JSX.Element => {
 							<li className="my-px">
 								<Link
 									href="/admin?tab=site-setting"
-									className={`flex h-10 flex-row items-center rounded-lg px-3 
+									className={`flex h-10 flex-row items-center rounded-lg px-3
               ${
 								router.pathname === "/admin" && router.query.tab === "site-setting"
 									? "bg-gray-100 text-gray-700"
@@ -445,6 +446,21 @@ const Sidebar = (): JSX.Element => {
 										</svg>
 									</span>
 									<span className="ml-3">{t("backuprestore")}</span>
+								</Link>
+							</li>
+							<li className="my-px">
+								<Link
+									href="/admin?tab=system-update"
+									className={`flex h-10 flex-row items-center rounded-lg px-3 ${
+										router.pathname === "/admin" && router.query.tab === "system-update"
+											? "bg-gray-100 text-gray-700"
+											: "hover:bg-slate-700"
+									}`}
+								>
+									<span className="flex items-center justify-center text-lg text-gray-400">
+										<ArrowPathIcon className="h-6 w-6" />
+									</span>
+									<span className="ml-3">{t("systemUpdate")}</span>
 								</Link>
 							</li>
 						</>

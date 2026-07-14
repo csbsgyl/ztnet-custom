@@ -57,6 +57,8 @@ NEXTAUTH_URL_INTERNAL=http://ztnet:3000
 AUTO_UPDATE=false
 AUTO_UPDATE_INTERVAL=7200
 AUTO_UPDATE_CLEANUP=true
+UPDATE_API_URL=http://existing-updater:8080
+UPDATE_API_TOKEN=existing-update-token
 EOF
 
 POSTGRES_USER_PROVIDED=""
@@ -67,6 +69,8 @@ NEXTAUTH_URL_PROVIDED=""
 AUTO_UPDATE_PROVIDED=""
 AUTO_UPDATE_INTERVAL_PROVIDED=""
 AUTO_UPDATE_CLEANUP_PROVIDED=""
+UPDATE_API_URL_PROVIDED=""
+UPDATE_API_TOKEN_PROVIDED=""
 POSTGRES_USER="postgres"
 POSTGRES_DB="ztnet"
 POSTGRES_PASSWORD=""
@@ -75,6 +79,8 @@ NEXTAUTH_URL=""
 AUTO_UPDATE="true"
 AUTO_UPDATE_INTERVAL="3600"
 AUTO_UPDATE_CLEANUP="false"
+UPDATE_API_URL="http://updater:8080"
+UPDATE_API_TOKEN=""
 load_existing_environment
 validate_auto_update
 assert_eq "existing-user" "$POSTGRES_USER" "preserves the existing database user"
@@ -85,9 +91,12 @@ assert_eq "https://ztnet.example.com" "$NEXTAUTH_URL" "preserves the existing pu
 assert_eq "false" "$AUTO_UPDATE" "preserves the existing auto-update setting"
 assert_eq "7200" "$AUTO_UPDATE_INTERVAL" "preserves the existing update interval"
 assert_eq "true" "$AUTO_UPDATE_CLEANUP" "preserves the existing cleanup setting"
+assert_eq "http://existing-updater:8080" "$UPDATE_API_URL" "preserves the update API URL"
+assert_eq "existing-update-token" "$UPDATE_API_TOKEN" "preserves the update API token"
 write_env_file
 assert_file_contains "${INSTALL_DIR}/.env" "POSTGRES_PASSWORD=existing-database-secret" "does not rotate the database password"
 assert_file_contains "${INSTALL_DIR}/.env" "NEXTAUTH_SECRET=existing-auth-secret" "does not rotate the auth secret"
+assert_file_contains "${INSTALL_DIR}/.env" "UPDATE_API_TOKEN=existing-update-token" "does not rotate the update API token"
 
 AUTO_UPDATE_PROVIDED="x"
 AUTO_UPDATE="true"
@@ -287,13 +296,20 @@ mkdir -p "$INSTALL_DIR"
 AUTO_UPDATE="true"
 AUTO_UPDATE_INTERVAL="3600"
 AUTO_UPDATE_CLEANUP="false"
+UPDATE_API_URL="http://updater:8080"
+UPDATE_API_TOKEN="existing-update-token"
 UPDATER_IMAGE="docker.xiaohangyun.org/nickfedor/watchtower:1.19.0"
 write_compose_file
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.watchtower.enable: \"true\"" "labels ZTNET for updates"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "image: docker.xiaohangyun.org/nickfedor/watchtower:1.19.0" "writes the selected updater image"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_POLL_INTERVAL: \"3600\"" "writes the update interval"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_HTTP_API_UPDATE: \"true\"" "enables manual update requests"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_HTTP_API_PERIODIC_POLLS: \"true\"" "keeps periodic updates enabled"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_HTTP_API_METRICS: \"true\"" "enables updater health checks"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_HTTP_API_TOKEN: \${UPDATE_API_TOKEN}" "uses the private update API token"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.watchtower.scope: \"ztnet-custom\"" "scopes the application and updater"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "/var/run/docker.sock:/var/run/docker.sock" "mounts the Docker socket"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - app-network" "connects the updater to the private application network"
 assert_eq \
 	"1" \
 	"$(grep -Fc 'com.centurylinklabs.watchtower.enable: "true"' "${INSTALL_DIR}/docker-compose.yml")" \

@@ -133,6 +133,7 @@
 		"controller": "控制器",
 		"organization": "組織",
 		"backuprestore": "備份",
+		"systemUpdate": "系統更新",
 		"account": "帳戶",
 		"user-settings": "使用者設定",
 		"logout": "登出"
@@ -491,6 +492,39 @@
 		}
 	},
 	"admin": {
+		"systemUpdate": {
+			"statusTitle": "版本狀態",
+			"state": {
+				"available": "偵測到新的映像版本。",
+				"current": "目前已是最新映像版本。",
+				"unknown": "暫時無法比較目前版本與最新映像版本。"
+			},
+			"currentBuild": "目前建置",
+			"latestBuild": "最新映像建置",
+			"imageSource": "映像來源",
+			"lastChecked": "檢查時間",
+			"checkNow": "立即檢查",
+			"installNow": "檢查並安裝",
+			"automationTitle": "更新自動化",
+			"automaticUpdates": "自動更新",
+			"checkInterval": "檢查間隔",
+			"updaterConnection": "更新服務連線",
+			"enabled": "已啟用",
+			"disabled": "已停用",
+			"unknown": "未知",
+			"hours": "{count} 小時",
+			"minutes": "{count} 分鐘",
+			"seconds": "{count} 秒",
+			"connection": {
+				"connected": "已連線",
+				"error": "連線異常",
+				"unavailable": "未設定"
+			},
+			"configurationRequired": "手動更新控制尚不可用。請再執行一次目前的一鍵安裝腳本，以加入私有更新介面。",
+			"confirmTitle": "檢查並安裝更新",
+			"confirmDescription": "ZTNET 將檢查目前映像來源；發現新映像時只會替換應用程式容器，頁面可能短暫中斷。",
+			"updateRequested": "更新檢查已啟動。僅在發現新映像時才會重新啟動 ZTNET。"
+		},
 		"settings": {
 			"application": {
 				"title": "應用程式",

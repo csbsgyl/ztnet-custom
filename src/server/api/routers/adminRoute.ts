@@ -24,6 +24,7 @@ import path from "node:path";
 import archiver from "archiver";
 import { BackupMetadata } from "~/types/backupRestore";
 import { checkAndDeactivateExpiredUsers } from "~/cronTasks";
+import { getSystemUpdateStatus, triggerSystemUpdate } from "~/server/systemUpdate";
 
 type WithError<T> = T & { error?: boolean; message?: string };
 type GlobalOptionsResponse = WithError<Omit<GlobalOptions, "smtpPassword">> & {
@@ -32,6 +33,17 @@ type GlobalOptionsResponse = WithError<Omit<GlobalOptions, "smtpPassword">> & {
 };
 
 export const adminRouter = createTRPCRouter({
+	getSystemUpdateStatus: adminRoleProtectedRoute.query(() => getSystemUpdateStatus()),
+	triggerSystemUpdate: adminRoleProtectedRoute.mutation(async () => {
+		try {
+			return await triggerSystemUpdate();
+		} catch (error) {
+			throwError(
+				error instanceof Error ? error.message : "The update request failed.",
+				"PRECONDITION_FAILED",
+			);
+		}
+	}),
 	updateUser: adminRoleProtectedRoute
 		.input(
 			z.object({

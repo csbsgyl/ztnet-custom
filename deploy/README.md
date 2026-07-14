@@ -70,7 +70,9 @@ curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/on
 
 Automatic ZTNET updates are enabled by default. The updater checks the configured ZTNET image digest every hour and recreates only the ZTNET application container when the digest changes. PostgreSQL, ZeroTier, and the updater itself are not automatically upgraded.
 
-Existing installations need to run the installer once to add the background updater. Existing database credentials, auth secrets, public URL, and update settings are preserved:
+Administrators can view the current build, latest successful image build, updater connection, and polling interval under **Admin > System Update**. The page can also request an immediate scoped update check.
+
+Existing installations need to run the installer once to add the private updater API used by this page. Existing database credentials, auth secrets, public URL, update settings, and update API token are preserved on later runs:
 
 ```bash
 curl --retry 2 --retry-all-errors -fL \
@@ -78,7 +80,7 @@ curl --retry 2 --retry-all-errors -fL \
   'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo bash
 ```
 
-After that one-time command, future application releases are detected and installed in the background. View updater activity with:
+After that one-time command, future application releases are detected and installed in the background or can be requested from the admin page. View updater activity with:
 
 ```bash
 cd /opt/ztnet-custom
@@ -180,6 +182,8 @@ Supported environment variables:
 | `AUTO_UPDATE` | `true` | Enable the scoped background updater for ZTNET only. |
 | `AUTO_UPDATE_INTERVAL` | `3600` | Seconds between image digest checks; minimum `60`. |
 | `AUTO_UPDATE_CLEANUP` | `false` | Remove replaced images after a successful update. |
+| `UPDATE_API_URL` | `http://updater:8080` | Private Compose-network URL used by the admin update page. |
+| `UPDATE_API_TOKEN` | random | Private token shared by ZTNET and Watchtower; generated once and preserved. |
 | `UPDATER_IMAGE` | `nickfedor/watchtower:1.19.0` | Background updater image. |
 | `UPDATER_MIRROR_IMAGE` | auto-generated | Override the Docker mirror image selected for the updater. |
 
@@ -217,6 +221,7 @@ Candidate fallback begins after the current `docker pull` exits. If a broken net
 - The GitHub accelerator is a third-party download proxy. Its response is checked against the committed installer in CI, but operators should still use only accelerators they trust.
 - If the GitHub accelerator reports a self-signed certificate, use the direct `raw.githubusercontent.com` command or wait for the accelerator certificate to recover. Do not bypass TLS verification unless the downloaded script is checked against a trusted SHA-256 value.
 - Automatic updates require mounting `/var/run/docker.sock` into the updater, which grants Docker daemon control. The updater is scoped and label-restricted to the ZTNET application container.
+- The ZTNET web container does not receive the Docker socket. Manual update requests use a token-protected Watchtower endpoint available only on the private Compose network; port `8080` is not published on the host.
 - Automatic updates require a mutable image tag such as `latest`; digest-pinned images intentionally do not move to newer releases.
 - Keep database backups. Application releases may include database migrations even though the PostgreSQL container itself is not updated.
 - If you prefer manual deployment, copy `deploy/docker-compose.yml` and create a `.env` file from the variable list above.
