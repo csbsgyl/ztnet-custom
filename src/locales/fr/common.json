@@ -523,7 +523,34 @@
 			"configurationRequired": "Manual update control is unavailable. Run the current one-click installer once to add the private updater API.",
 			"confirmTitle": "Check and install updates",
 			"confirmDescription": "ZTNET will check the configured image source and replace only the application container when a newer image is available. The page may disconnect briefly.",
-			"updateRequested": "Update check started. ZTNET will restart only if a newer image is available."
+			"updateRequested": "Update check started. ZTNET will restart only if a newer image is available.",
+			"progress": {
+				"checkingTitle": "Checking for updates",
+				"checkingDescription": "Contacting the release service and comparing image builds.",
+				"requestingTitle": "Submitting update request",
+				"requestingDescription": "Sending a protected update request to the updater.",
+				"installingTitle": "Downloading and installing image",
+				"installingDescription": "The updater is pulling the image and will replace only the ZTNET container.",
+				"reconnectingTitle": "ZTNET is restarting",
+				"reconnectingDescription": "The application is temporarily offline. Reconnecting automatically.",
+				"verifyingTitle": "Verifying the new build",
+				"verifyingDescription": "The application is reachable again and the running build is being verified.",
+				"completeTitle": "Update complete",
+				"completeDescription": "The new build is running. This page will refresh automatically.",
+				"failedTitle": "Update not completed",
+				"failedDescription": "The request failed or exceeded the waiting time. Dismiss this status and try again.",
+				"elapsed": "Elapsed {seconds}s",
+				"live": "Live",
+				"dismiss": "Dismiss status",
+				"checkingButton": "Checking...",
+				"updatingButton": "Updating...",
+				"steps": {
+					"request": "Request",
+					"install": "Install",
+					"restart": "Restart",
+					"verify": "Verify"
+				}
+			}
 		},
 		"settings": {
 			"application": {

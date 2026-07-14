@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import enTranslation from "~/locales/en/common.json";
@@ -31,8 +31,14 @@ describe("System update admin page", () => {
 	const refetch = jest.fn();
 	const triggerUpdate = jest.fn();
 	const callModal = jest.fn();
+	let mutationOptions: { onSuccess?: () => void; onError?: (error: Error) => void };
 
 	beforeEach(() => {
+		window.localStorage.clear();
+		refetch.mockReset();
+		refetch.mockResolvedValue({ data: undefined });
+		triggerUpdate.mockReset();
+		callModal.mockReset();
 		(api.admin.getSystemUpdateStatus.useQuery as jest.Mock).mockReturnValue({
 			data: {
 				currentVersion: "abc1234567890abc1234567890abc1234567890",
@@ -51,12 +57,18 @@ describe("System update admin page", () => {
 			},
 			isLoading: false,
 			isFetching: false,
+			isError: false,
 			refetch,
 		});
-		(api.admin.triggerSystemUpdate.useMutation as jest.Mock).mockReturnValue({
-			mutate: triggerUpdate,
-			isLoading: false,
-		});
+		(api.admin.triggerSystemUpdate.useMutation as jest.Mock).mockImplementation(
+			(options) => {
+				mutationOptions = options;
+				return {
+					mutate: triggerUpdate,
+					isLoading: false,
+				};
+			},
+		);
 		(useModalStore as unknown as jest.Mock).mockReturnValue(callModal);
 	});
 
@@ -88,7 +100,61 @@ describe("System update admin page", () => {
 			}),
 		);
 
-		callModal.mock.calls[0][0].yesAction();
+		act(() => callModal.mock.calls[0][0].yesAction());
 		expect(triggerUpdate).toHaveBeenCalledTimes(1);
+		expect(screen.getByText("Submitting update request")).toBeInTheDocument();
+		expect(screen.getByText("Live")).toBeInTheDocument();
+
+		act(() => mutationOptions.onSuccess?.());
+		expect(screen.getByText("Downloading and installing image")).toBeInTheDocument();
+		expect(screen.getByText("Install")).toBeInTheDocument();
+	});
+
+	it("shows a live animation for manual update checks", async () => {
+		const user = userEvent.setup();
+		let finishRefetch: (value: unknown) => void;
+		refetch.mockReturnValueOnce(
+			new Promise((resolve) => {
+				finishRefetch = resolve;
+			}),
+		);
+		renderPage();
+
+		await user.click(screen.getByRole("button", { name: "Check now" }));
+
+		expect(screen.getByText("Checking for updates")).toBeInTheDocument();
+		expect(screen.getByText("Live")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Checking..." })).toBeDisabled();
+
+		act(() => finishRefetch(undefined));
+		await waitFor(() =>
+			expect(screen.queryByText("Checking for updates")).not.toBeInTheDocument(),
+		);
+	});
+
+	it("restores update progress after the application container reconnects", async () => {
+		window.localStorage.setItem(
+			"ztnet-system-update-progress",
+			JSON.stringify({
+				phase: "reconnecting",
+				targetCommit: "def1234567890def1234567890def1234567890",
+				startedAt: Date.now(),
+				sawDisconnect: true,
+			}),
+		);
+
+		renderPage();
+
+		expect(await screen.findByText("Verifying the new build")).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"The application is reachable again and the running build is being verified.",
+			),
+		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Updating..." })).toBeDisabled();
+		expect(api.admin.getSystemUpdateStatus.useQuery).toHaveBeenLastCalledWith(
+			undefined,
+			expect.objectContaining({ refetchInterval: 2_000 }),
+		);
 	});
 });

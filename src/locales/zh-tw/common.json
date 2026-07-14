@@ -523,7 +523,34 @@
 			"configurationRequired": "手動更新控制尚不可用。請再執行一次目前的一鍵安裝腳本，以加入私有更新介面。",
 			"confirmTitle": "檢查並安裝更新",
 			"confirmDescription": "ZTNET 將檢查目前映像來源；發現新映像時只會替換應用程式容器，頁面可能短暫中斷。",
-			"updateRequested": "更新檢查已啟動。僅在發現新映像時才會重新啟動 ZTNET。"
+			"updateRequested": "更新檢查已啟動。僅在發現新映像時才會重新啟動 ZTNET。",
+			"progress": {
+				"checkingTitle": "正在檢查更新",
+				"checkingDescription": "正在連線發佈服務並比較目前建置與最新映像。",
+				"requestingTitle": "正在提交更新工作",
+				"requestingDescription": "正在向私有更新服務傳送受保護的更新要求。",
+				"installingTitle": "正在下載並安裝映像",
+				"installingDescription": "更新服務正在下載映像，並且只會替換 ZTNET 應用程式容器。",
+				"reconnectingTitle": "ZTNET 正在重新啟動",
+				"reconnectingDescription": "應用程式暫時離線，頁面正在自動重新連線。",
+				"verifyingTitle": "正在驗證新建置",
+				"verifyingDescription": "應用程式已恢復連線，正在確認目前執行的建置版本。",
+				"completeTitle": "更新完成",
+				"completeDescription": "新建置已經執行，頁面即將自動重新整理。",
+				"failedTitle": "更新尚未完成",
+				"failedDescription": "更新要求失敗或等待逾時。關閉此狀態後可以重新嘗試。",
+				"elapsed": "已用時 {seconds} 秒",
+				"live": "即時",
+				"dismiss": "關閉狀態",
+				"checkingButton": "檢查中...",
+				"updatingButton": "更新中...",
+				"steps": {
+					"request": "提交",
+					"install": "安裝",
+					"restart": "重啟",
+					"verify": "驗證"
+				}
+			}
 		},
 		"settings": {
 			"application": {

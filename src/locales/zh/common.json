@@ -523,7 +523,34 @@
 			"configurationRequired": "手动更新控制尚不可用。请再运行一次当前的一键安装脚本，以加入私有更新接口。",
 			"confirmTitle": "检查并安装更新",
 			"confirmDescription": "ZTNET 将检查当前镜像来源；发现新镜像时只会替换应用容器，页面可能短暂断开。",
-			"updateRequested": "更新检查已启动。仅在发现新镜像时才会重启 ZTNET。"
+			"updateRequested": "更新检查已启动。仅在发现新镜像时才会重启 ZTNET。",
+			"progress": {
+				"checkingTitle": "正在检查更新",
+				"checkingDescription": "正在连接发布服务并比较当前构建与最新镜像。",
+				"requestingTitle": "正在提交更新任务",
+				"requestingDescription": "正在向私有更新服务发送受保护的更新请求。",
+				"installingTitle": "正在拉取并安装镜像",
+				"installingDescription": "更新服务正在下载镜像，并且只会替换 ZTNET 应用容器。",
+				"reconnectingTitle": "ZTNET 正在重启",
+				"reconnectingDescription": "应用暂时离线，页面正在自动重新连接。",
+				"verifyingTitle": "正在验证新构建",
+				"verifyingDescription": "应用已恢复连接，正在确认当前运行的构建版本。",
+				"completeTitle": "更新完成",
+				"completeDescription": "新构建已经运行，页面即将自动刷新。",
+				"failedTitle": "更新尚未完成",
+				"failedDescription": "更新请求失败或等待超时。关闭此状态后可以重新尝试。",
+				"elapsed": "已用时 {seconds} 秒",
+				"live": "实时",
+				"dismiss": "关闭状态",
+				"checkingButton": "检查中...",
+				"updatingButton": "更新中...",
+				"steps": {
+					"request": "提交",
+					"install": "安装",
+					"restart": "重启",
+					"verify": "验证"
+				}
+			}
 		},
 		"settings": {
 			"application": {
