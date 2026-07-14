@@ -7,7 +7,6 @@ import { MemberCounts } from "~/types/local/member";
 
 const mockSession: PartialDeep<Session> = {
 	expires: new Date().toISOString(),
-	update: { name: "test" },
 	user: {
 		id: "userid",
 		name: "Bernt Christian",
@@ -67,6 +66,13 @@ test("getUserNetworks", async () => {
 		},
 	];
 
+	prismaMock.user.findUnique = jest.fn().mockResolvedValue({
+		id: "userid",
+		role: "USER",
+		isActive: true,
+		suspensionReason: "NONE",
+		expiresAt: null,
+	}) as never;
 	prismaMock.network.findMany = jest.fn().mockResolvedValue(mockOutput);
 
 	const caller = appRouter.createCaller({

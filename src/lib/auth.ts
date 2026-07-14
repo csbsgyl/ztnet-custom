@@ -310,6 +310,7 @@ export async function onSessionCreated(
 	// biome-ignore lint/suspicious/noExplicitAny: better-auth's GenericEndpointContext
 	ctx: any | null,
 ): Promise<void> {
+	const now = new Date();
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		include: { userGroup: true },
@@ -322,15 +323,26 @@ export async function onSessionCreated(
 	if (!user.isActive) {
 		throw new APIError("FORBIDDEN", { message: "account-expired" });
 	}
-	if (user.expiresAt && new Date(user.expiresAt) < new Date()) {
+	if (user.expiresAt && new Date(user.expiresAt) < now) {
 		throw new APIError("FORBIDDEN", { message: "account-expired" });
 	}
 	if (
 		user.role !== "ADMIN" &&
 		user.userGroup?.expiresAt &&
-		new Date(user.userGroup.expiresAt) < new Date()
+		new Date(user.userGroup.expiresAt) < now
 	) {
-		throw new APIError("FORBIDDEN", { message: "account-expired" });
+		const activeSubscription = await prisma.subscription.findFirst({
+			where: {
+				userId,
+				status: "ACTIVE",
+				startsAt: { lte: now },
+				expiresAt: { gt: now },
+			},
+			select: { id: true },
+		});
+		if (!activeSubscription) {
+			throw new APIError("FORBIDDEN", { message: "account-expired" });
+		}
 	}
 
 	// Reset failed login attempts + update lastLogin

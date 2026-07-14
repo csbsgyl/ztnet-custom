@@ -7,6 +7,8 @@ import { settingsRouter } from "./routers/settingsRouter";
 import { organizationRouter } from "./routers/organizationRouter";
 import { publicRouter } from "./routers/publicRouter";
 import { mfaAuthRouter } from "./routers/mfaAuthRouter";
+import { billingRouter } from "./routers/billingRouter";
+import { billingAdminRouter } from "./routers/billingAdminRouter";
 
 /**
  * This is the primary router for your server.
@@ -22,6 +24,8 @@ export const appRouter = createTRPCRouter({
 	settings: settingsRouter,
 	org: organizationRouter,
 	public: publicRouter,
+	billing: billingRouter,
+	billingAdmin: billingAdminRouter,
 });
 
 // export type definition of API

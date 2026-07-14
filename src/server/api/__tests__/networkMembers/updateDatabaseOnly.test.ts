@@ -21,6 +21,13 @@ test("updateDatabaseOnly test", async () => {
 	const mock = mockDeep<PrismaClient>();
 	const prisma: DeepMockProxy<PrismaClient> =
 		mock as unknown as DeepMockProxy<PrismaClient>;
+	prisma.user.findUnique.mockResolvedValue({
+		id: "userid",
+		role: "USER",
+		isActive: true,
+		suspensionReason: "NONE",
+		expiresAt: null,
+	} as never);
 
 	const mockSession: PartialDeep<Session> = {
 		expires: new Date().toISOString(),

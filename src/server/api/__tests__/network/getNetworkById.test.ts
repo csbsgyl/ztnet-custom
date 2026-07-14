@@ -7,7 +7,6 @@ import { TRPCError } from "@trpc/server";
 const prisma = new PrismaClient();
 const mockSession: PartialDeep<Session> = {
 	expires: new Date().toISOString(),
-	update: { name: "test" },
 	user: {
 		id: "userid",
 		name: "Bernt Christian",
@@ -16,6 +15,13 @@ const mockSession: PartialDeep<Session> = {
 };
 
 it("should throw an error if the user is not the author of the network", async () => {
+	prisma.user.findUnique = jest.fn().mockResolvedValue({
+		id: "userid",
+		role: "USER",
+		isActive: true,
+		suspensionReason: "NONE",
+		expiresAt: null,
+	}) as never;
 	prisma.network.findUnique = jest.fn().mockRejectedValue(
 		new TRPCError({
 			message: "Network not found!",

@@ -26,6 +26,15 @@ const session = {
 
 const makeCtx = (over: Record<string, unknown> = {}) => {
 	const prisma = {
+		user: {
+			findUnique: jest.fn().mockResolvedValue({
+				id: "userid",
+				role: "USER",
+				isActive: true,
+				suspensionReason: "NONE",
+				expiresAt: null,
+			}),
+		},
 		network: {
 			findUnique: jest
 				.fn()
@@ -65,7 +74,15 @@ describe("network.getNetworkMembers", () => {
 
 		expect(result).toEqual({ members: rows, totalCount: 5, authorizedCount: 3 });
 		// Warm cache → background reconcile, never a blocking one.
-		expect(svc.triggerBackgroundReconcile).toHaveBeenCalledWith(ctx, "nw1");
+		expect(svc.triggerBackgroundReconcile).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prisma: ctx.prisma,
+				session: expect.objectContaining({
+					user: expect.objectContaining({ id: "userid" }),
+				}),
+			}),
+			"nw1",
+		);
 		expect(svc.reconcileNetworkMembersOnce).not.toHaveBeenCalled();
 		// Pagination + sort translated to SQL.
 		const args = ctx.prisma.network_members.findMany.mock.calls[0][0];
@@ -85,7 +102,15 @@ describe("network.getNetworkMembers", () => {
 		const caller = appRouter.createCaller(ctx);
 		await caller.network.getNetworkMembers({ nwid: "nw1" });
 
-		expect(svc.reconcileNetworkMembersOnce).toHaveBeenCalledWith(ctx, "nw1");
+		expect(svc.reconcileNetworkMembersOnce).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prisma: ctx.prisma,
+				session: expect.objectContaining({
+					user: expect.objectContaining({ id: "userid" }),
+				}),
+			}),
+			"nw1",
+		);
 		expect(svc.triggerBackgroundReconcile).not.toHaveBeenCalled();
 	});
 

@@ -124,6 +124,7 @@
 		"navigation": "首页",
 		"dashboard": "仪表盘",
 		"networks": "本地控制器",
+		"billing": "套餐与计费",
 		"ztCentral": "ZT 中心",
 		"admin": "管理员",
 		"settings": "设置",
@@ -489,6 +490,253 @@
 			"dnsPushText3": "在 macOS、iOS、Windows 和 Android 上，ZeroTier 可以自动为特定域添加 DNS 服务器。它不设置或托管 DNS 服务器。您必须托管您自己的服务器。",
 			"dnsPushText4": "如果您将 zt.example.com 配置为您的搜索域，并且将 10.147.20.1 配置为服务器地址，那么您的计算机将要求 10.147.20.1 查找以 zt.example.com 结尾的主机名的 IP 地址。",
 			"dnsPushText5": "必须在每个客户端上启用 allowDNS 选项。在每个网络详情的 UI 中，靠近允许管理复选框附近有一个复选框。"
+		}
+	},
+	"billing": {
+		"title": "套餐与计费",
+		"description": "查看网络额度、管理当前订阅并跟踪支付订单。",
+		"loading": "正在加载计费信息...",
+		"refreshing": "正在刷新计费信息...",
+		"retry": "重试",
+		"notAvailable": "暂无",
+		"status": {
+			"active": "生效中",
+			"pending": "待处理",
+			"paying": "等待支付",
+			"confirming": "确认中",
+			"processing": "处理中",
+			"fulfilling": "开通中",
+			"paid": "已支付",
+			"success": "成功",
+			"completed": "已完成",
+			"fulfilled": "已开通",
+			"failed": "失败",
+			"fulfillment_failed": "开通失败",
+			"closed": "已关闭",
+			"cancelled": "已取消",
+			"expired": "已到期",
+			"past_due": "已逾期",
+			"suspended": "已暂停",
+			"refunded": "已退款"
+		},
+		"subscription": {
+			"title": "当前订阅",
+			"validUntil": "有效期至 {date}",
+			"none": "暂无生效套餐",
+			"noneDescription": "请选择可购买的套餐以开通网络服务。"
+		},
+		"usage": {
+			"title": "网络用量",
+			"description": "当前计入套餐额度的个人网络数量。",
+			"unlimited": "不限",
+			"progressLabel": "网络额度已使用 {percent}%"
+		},
+		"payment": {
+			"pendingTitle": "等待支付宝付款",
+			"pendingDescription": "请在支付宝窗口完成付款，本页面会自动检查订单状态。",
+			"confirmingTitle": "正在确认付款",
+			"confirmingDescription": "已收到付款结果，正在为您开通套餐。",
+			"successTitle": "套餐已开通",
+			"successDescription": "付款和套餐开通均已完成，网络额度已经刷新。",
+			"failedTitle": "支付未完成",
+			"failedDescription": "订单支付失败、已过期或已关闭，您可以重新创建订单。",
+			"live": "实时",
+			"openAlipay": "打开支付宝",
+			"dismiss": "关闭",
+			"popupBlocked": "支付窗口被浏览器拦截，请点击“打开支付宝”继续。"
+		},
+		"return": {
+			"loading": "正在加载订单状态...",
+			"refreshing": "正在刷新订单状态...",
+			"missingTitle": "缺少订单标识",
+			"missingDescription": "当前返回链接中没有有效的订单 ID。",
+			"errorTitle": "暂时无法获取订单状态",
+			"errorDescription": "未能获取最新订单状态。",
+			"pendingTitle": "等待支付异步确认",
+			"pendingDescription": "浏览器已从支付宝返回；套餐不会在返回页直接开通，需等待服务端收到并验证异步支付结果。",
+			"confirmingTitle": "已收到付款，正在开通套餐",
+			"confirmingDescription": "服务端已收到支付结果，正在应用您的订阅。",
+			"successTitle": "套餐已开通",
+			"successDescription": "服务端已确认付款并完成订阅开通。",
+			"failedTitle": "订单未完成",
+			"failedDescription": "订单支付失败或已关闭，请先查看订单记录再重试。",
+			"live": "实时",
+			"retry": "重试",
+			"back": "返回计费页面"
+		},
+		"messages": {
+			"paymentSuccess": "支付已确认，套餐已开通。",
+			"operationFailed": "计费操作未能完成。"
+		},
+		"errors": {
+			"overviewTitle": "无法获取计费信息",
+			"overview": "计费信息加载失败。",
+			"orderStatus": "暂时无法获取最新订单状态。"
+		},
+		"plans": {
+			"title": "可选套餐",
+			"description": "购买套餐或升级到更高的网络额度。",
+			"empty": "当前没有可购买的套餐。",
+			"noDescription": "暂无说明",
+			"current": "当前套餐",
+			"months": "{count} 个月",
+			"networkLimit": "最多创建 {count} 个个人网络",
+			"buy": "立即购买",
+			"renew": "续费当前套餐",
+			"upgrade": "升级套餐",
+			"downgradeBlocked": "降级请联系管理员"
+		},
+		"orders": {
+			"title": "历史订单",
+			"description": "与当前账号关联的支付和套餐订单。",
+			"empty": "暂无订单。",
+			"number": "订单号",
+			"plan": "套餐",
+			"amount": "金额",
+			"status": "状态",
+			"createdAt": "创建时间"
+		},
+		"admin": {
+			"title": "计费管理",
+			"description": "管理套餐、订阅、订单、手工续费和支付宝接入。",
+			"close": "关闭",
+			"cancel": "取消",
+			"tabs": {
+				"label": "计费管理视图",
+				"overview": "概览",
+				"plans": "套餐",
+				"orders": "订单",
+				"alipay": "支付宝"
+			},
+			"loading": {
+				"dashboard": "正在加载计费概览...",
+				"plans": "正在加载套餐...",
+				"orders": "正在加载订单...",
+				"alipay": "正在加载支付宝配置..."
+			},
+			"errors": {
+				"load": "此区域加载失败。",
+				"dashboardTitle": "无法获取计费概览",
+				"plansTitle": "无法获取套餐",
+				"ordersTitle": "无法获取订单",
+				"alipayTitle": "无法获取支付宝配置"
+			},
+			"messages": {
+				"operationFailed": "计费操作未能完成。",
+				"planSaved": "套餐已保存。",
+				"planAvailabilitySaved": "套餐上下架状态已更新。",
+				"planDeleted": "套餐已删除或归档下架。",
+				"orderQueried": "已同步支付宝最新订单状态。",
+				"renewed": "订阅已续费。",
+				"alipaySaved": "支付宝配置已保存。"
+			},
+			"validation": {
+				"plan": "请完整填写套餐信息并使用有效数值。",
+				"renewal": "请选择用户和套餐，并填写有效的续费信息。",
+				"alipay": "启用支付前请完整填写支付宝必要凭据。"
+			},
+			"metrics": {
+				"activeSubscriptions": "生效订阅",
+				"expiringSoon": "7 天内到期",
+				"pendingOrders": "待处理订单",
+				"revenue": "已支付收入"
+			},
+			"subscriptions": {
+				"title": "订阅",
+				"description": "查看每位用户的套餐状态、到期时间和网络用量。",
+				"empty": "暂无订阅。",
+				"user": "用户",
+				"plan": "套餐",
+				"status": "状态",
+				"expires": "到期时间",
+				"networks": "网络用量",
+				"actions": "操作"
+			},
+			"renewal": {
+				"open": "手工续费",
+				"title": "续费订阅",
+				"description": "立即应用套餐，并生成一笔可审计的手工收款订单。",
+				"user": "用户",
+				"selectUser": "请选择用户",
+				"plan": "套餐",
+				"selectPlan": "请选择套餐",
+				"durationMonths": "续费月数",
+				"amount": "实收金额（人民币）",
+				"note": "内部备注",
+				"submit": "确认续费"
+			},
+			"plans": {
+				"title": "套餐",
+				"description": "每个可购买套餐都会应用其关联用户组的限制。",
+				"add": "添加套餐",
+				"create": "创建套餐",
+				"edit": "编辑套餐",
+				"save": "保存套餐",
+				"empty": "尚未创建套餐。",
+				"active": "销售中",
+				"inactive": "已隐藏",
+				"months": "{count} 个月",
+				"editNamed": "编辑 {name}",
+				"publishNamed": "上架 {name}",
+				"hideNamed": "下架 {name}",
+				"deleteNamed": "删除 {name}",
+				"deleteConfirm": "确定删除套餐 {name}？存在生效订阅时应由服务端拒绝删除。",
+				"fields": {
+					"name": "套餐名称",
+					"group": "关联用户组",
+					"selectGroup": "请选择用户组",
+					"price": "价格（人民币）",
+					"duration": "周期（月）",
+					"level": "套餐等级",
+					"description": "套餐说明",
+					"active": "允许用户购买"
+				},
+				"columns": {
+					"name": "套餐",
+					"group": "用户组 / 网络额度",
+					"price": "价格",
+					"duration": "周期",
+					"subscribers": "订阅数",
+					"status": "状态",
+					"actions": "操作"
+				}
+			},
+			"orders": {
+				"title": "订单",
+				"description": "支付宝订单和管理员手工记录的订阅订单。",
+				"empty": "暂无订单。",
+				"number": "订单号",
+				"user": "用户",
+				"plan": "套餐",
+				"amount": "金额",
+				"status": "状态",
+				"createdAt": "创建时间",
+				"tradeNo": "支付宝交易号",
+				"actions": "操作",
+				"querying": "正在向支付宝查单并刷新订单状态...",
+				"queryNamed": "主动查询订单 {orderNo}"
+			},
+			"alipay": {
+				"title": "支付宝配置",
+				"description": "配置支付宝电脑网站支付所需的 RSA2 凭据。",
+				"enable": "启用支付宝支付",
+				"enableDescription": "只有启用后，用户才能创建需要支付的订单。",
+				"appId": "应用 ID",
+				"sellerId": "商户 Seller ID",
+				"gateway": "支付宝网关",
+				"gatewayHelp": "请使用支付宝 HTTPS 网关；切换沙箱时会自动更新此地址。",
+				"publicKey": "支付宝公钥",
+				"privateKey": "商户应用私钥",
+				"privateKeyConfigured": "已配置",
+				"privateKeyKeep": "留空将保留现有私钥",
+				"privateKeyRequired": "请粘贴商户应用私钥",
+				"privateKeyHelp": "现有私钥永远不会返回浏览器；此处留空即可保留。",
+				"sandbox": "使用支付宝沙箱",
+				"sandboxDescription": "仅在使用支付宝沙箱凭据和测试交易时启用。",
+				"notifyUrl": "异步通知地址",
+				"returnUrl": "浏览器返回地址",
+				"save": "保存支付宝配置"
+			}
 		}
 	},
 	"admin": {

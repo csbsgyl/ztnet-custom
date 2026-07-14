@@ -14,7 +14,6 @@ jest.mock("~/utils/ztApi", () => ({
 
 const mockSession: PartialDeep<Session> = {
 	expires: new Date().toISOString(),
-	update: { name: "test" },
 	user: {
 		id: "userid",
 		name: "Bernt Christian",
@@ -34,6 +33,13 @@ const flushPromises = async (times = 20): Promise<void> => {
 // biome-ignore lint/suspicious/noExplicitAny: building a minimal Prisma stub
 const createPrismaMock = (organization: any): PrismaClient => {
 	const prismaMock = new PrismaClient();
+	prismaMock.user.findUnique = jest.fn().mockResolvedValue({
+		id: "userid",
+		role: "USER",
+		isActive: true,
+		suspensionReason: "NONE",
+		expiresAt: null,
+	}) as never;
 	prismaMock.userOrganizationRole.findFirst = jest
 		.fn()
 		.mockResolvedValue({ role: "ADMIN" });

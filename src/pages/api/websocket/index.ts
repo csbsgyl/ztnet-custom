@@ -7,6 +7,10 @@ import { prisma } from "~/server/db";
 import { checkNetworkAccess } from "~/utils/networkAccess";
 import { syncManager, networkRoom } from "~/server/sync/syncManager";
 import type { UserContext } from "~/types/ctx";
+import { canAccessProtectedResources } from "~/utils/accountAccess";
+import { disconnectUserSockets, registerSocketServer } from "~/server/socketRegistry";
+
+export { disconnectUserSockets } from "~/server/socketRegistry";
 
 interface SocketIoExtension {
 	socket: {
@@ -17,9 +21,30 @@ interface SocketIoExtension {
 }
 
 export type NextApiResponseWithSocketIo = NextApiResponse & SocketIoExtension;
+
+const protectedAccountSelect = {
+	id: true,
+	role: true,
+	isActive: true,
+	suspensionReason: true,
+	expiresAt: true,
+} as const;
+
+async function userCanUseSockets(userId: string): Promise<boolean> {
+	try {
+		const account = await prisma.user.findUnique({
+			where: { id: userId },
+			select: protectedAccountSelect,
+		});
+		return account !== null && canAccessProtectedResources(account);
+	} catch {
+		return false;
+	}
+}
+
 const SocketHandler = async (req: NextApiRequest, res: NextApiResponseWithSocketIo) => {
 	const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-	if (!session) {
+	if (!session || !(await userCanUseSockets(session.user.id))) {
 		res.status(401).json({ message: "Authorization Error" });
 		return;
 	}
@@ -33,6 +58,7 @@ const SocketHandler = async (req: NextApiRequest, res: NextApiResponseWithSocket
 			addTrailingSlash: false,
 		});
 		res.socket.server.io = io;
+		registerSocketServer(io);
 
 		// Require a valid session for EVERY socket: reject unauthenticated
 		// connections outright (no unauthenticated client may hold a socket at all),
@@ -43,6 +69,9 @@ const SocketHandler = async (req: NextApiRequest, res: NextApiResponseWithSocket
 					headers: fromNodeHeaders(socket.handshake.headers),
 				});
 				if (!s) return next(new Error("unauthorized"));
+				if (!(await userCanUseSockets(s.user.id))) {
+					return next(new Error("unauthorized"));
+				}
 				socket.data.userId = s.user.id;
 				next();
 			} catch {
@@ -61,7 +90,12 @@ const SocketHandler = async (req: NextApiRequest, res: NextApiResponseWithSocket
 			} as unknown as UserContext;
 
 			socket.on("subscribe:network", async ({ nwid }: { nwid?: string }) => {
-				if (!nwid || subscribed.has(nwid) || !userId) return;
+				if (!nwid || !userId) return;
+				if (!(await userCanUseSockets(userId))) {
+					socket.disconnect(true);
+					return;
+				}
+				if (subscribed.has(nwid)) return;
 				try {
 					await checkNetworkAccess(ctx, nwid, Role.READ_ONLY);
 				} catch {
@@ -83,6 +117,8 @@ const SocketHandler = async (req: NextApiRequest, res: NextApiResponseWithSocket
 				subscribed.clear();
 			});
 		});
+	} else {
+		registerSocketServer(res.socket.server.io);
 	}
 	res.end();
 };

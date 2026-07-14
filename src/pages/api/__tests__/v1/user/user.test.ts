@@ -175,6 +175,11 @@ describe("createUserHandler", () => {
 			decryptedTokenData,
 			generateInstanceSecret(API_TOKEN_SECRET),
 		);
+		prisma.aPIToken.findUnique = jest.fn().mockResolvedValue({
+			token: tokenWithIdHash,
+			isActive: true,
+			expiresAt: new Date(Date.now() + 100_000),
+		});
 
 		const mockRegister = jest.fn().mockResolvedValue({ id: "newUserId" });
 		appRouter.createCaller = jest

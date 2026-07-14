@@ -136,7 +136,8 @@
 		"systemUpdate": "Mise à jour système",
 		"account": "Compte",
 		"user-settings": "Mes réglages",
-		"logout": "Se déconnecter"
+		"logout": "Se déconnecter",
+		"billing": "Billing"
 	},
 	"authPages": {
 		"welcomeMessage": {
@@ -1319,6 +1320,253 @@
 			"heading": "Page non trouvée",
 			"description": "Oups ! La page que vous recherchez n'existe pas. Elle a peut-être été déplacée ou supprimée.",
 			"goHome": "Retour à l'accueil"
+		}
+	},
+	"billing": {
+		"title": "Plans and billing",
+		"description": "Review your network allowance, manage your subscription, and track payments.",
+		"loading": "Loading billing information...",
+		"refreshing": "Refreshing billing information...",
+		"retry": "Try again",
+		"notAvailable": "Not available",
+		"status": {
+			"active": "Active",
+			"pending": "Pending",
+			"paying": "Awaiting payment",
+			"confirming": "Confirming",
+			"processing": "Processing",
+			"fulfilling": "Activating",
+			"paid": "Paid",
+			"success": "Successful",
+			"completed": "Completed",
+			"fulfilled": "Activated",
+			"failed": "Failed",
+			"fulfillment_failed": "Activation failed",
+			"closed": "Closed",
+			"cancelled": "Cancelled",
+			"expired": "Expired",
+			"past_due": "Past due",
+			"suspended": "Suspended",
+			"refunded": "Refunded"
+		},
+		"subscription": {
+			"title": "Current subscription",
+			"validUntil": "Valid until {date}",
+			"none": "No active plan",
+			"noneDescription": "Choose an available plan to activate network access."
+		},
+		"usage": {
+			"title": "Network usage",
+			"description": "Personal networks currently counted against your plan.",
+			"unlimited": "Unlimited",
+			"progressLabel": "Network allowance is {percent}% used"
+		},
+		"payment": {
+			"pendingTitle": "Waiting for Alipay payment",
+			"pendingDescription": "Complete the payment in the Alipay window. This page checks the order automatically.",
+			"confirmingTitle": "Confirming payment",
+			"confirmingDescription": "Payment was received and your plan is being activated.",
+			"successTitle": "Plan activated",
+			"successDescription": "Payment and plan activation are complete. Your allowance has been refreshed.",
+			"failedTitle": "Payment not completed",
+			"failedDescription": "The order failed, expired, or was closed. You can create a new order.",
+			"live": "Live",
+			"openAlipay": "Open Alipay",
+			"dismiss": "Dismiss",
+			"popupBlocked": "The payment window was blocked. Use the Open Alipay link to continue."
+		},
+		"return": {
+			"loading": "Loading the order status...",
+			"refreshing": "Refreshing the order status...",
+			"missingTitle": "Order reference missing",
+			"missingDescription": "This return link does not contain a valid order ID.",
+			"errorTitle": "Order status unavailable",
+			"errorDescription": "The latest order status could not be retrieved.",
+			"pendingTitle": "Waiting for asynchronous payment confirmation",
+			"pendingDescription": "The browser has returned from Alipay. Activation waits for the server to receive and verify the asynchronous payment result.",
+			"confirmingTitle": "Payment received, activating plan",
+			"confirmingDescription": "The server has received the payment result and is applying your subscription.",
+			"successTitle": "Plan activated",
+			"successDescription": "The server confirmed the payment and completed subscription activation.",
+			"failedTitle": "Order not completed",
+			"failedDescription": "The order failed or was closed. Review the order history before trying again.",
+			"live": "Live",
+			"retry": "Try again",
+			"back": "Back to billing"
+		},
+		"messages": {
+			"paymentSuccess": "Payment confirmed and plan activated.",
+			"operationFailed": "The billing operation could not be completed."
+		},
+		"errors": {
+			"overviewTitle": "Billing information unavailable",
+			"overview": "Billing information could not be loaded.",
+			"orderStatus": "The latest order status could not be retrieved."
+		},
+		"plans": {
+			"title": "Available plans",
+			"description": "Purchase a plan or upgrade to a larger network allowance.",
+			"empty": "There are no plans available for purchase.",
+			"noDescription": "No description",
+			"current": "Current plan",
+			"months": "{count, plural, one {# month} other {# months}}",
+			"networkLimit": "Up to {count} personal networks",
+			"buy": "Buy now",
+			"renew": "Renew plan",
+			"upgrade": "Upgrade plan",
+			"downgradeBlocked": "Contact admin to downgrade"
+		},
+		"orders": {
+			"title": "Order history",
+			"description": "Payments and plan orders associated with your account.",
+			"empty": "No orders yet.",
+			"number": "Order number",
+			"plan": "Plan",
+			"amount": "Amount",
+			"status": "Status",
+			"createdAt": "Created"
+		},
+		"admin": {
+			"title": "Billing administration",
+			"description": "Manage plans, subscriptions, orders, renewals, and Alipay integration.",
+			"close": "Close",
+			"cancel": "Cancel",
+			"tabs": {
+				"label": "Billing administration views",
+				"overview": "Overview",
+				"plans": "Plans",
+				"orders": "Orders",
+				"alipay": "Alipay"
+			},
+			"loading": {
+				"dashboard": "Loading billing dashboard...",
+				"plans": "Loading plans...",
+				"orders": "Loading orders...",
+				"alipay": "Loading Alipay configuration..."
+			},
+			"errors": {
+				"load": "This section could not be loaded.",
+				"dashboardTitle": "Dashboard unavailable",
+				"plansTitle": "Plans unavailable",
+				"ordersTitle": "Orders unavailable",
+				"alipayTitle": "Alipay configuration unavailable"
+			},
+			"messages": {
+				"operationFailed": "The billing operation could not be completed.",
+				"planSaved": "Plan saved.",
+				"planAvailabilitySaved": "Plan availability updated.",
+				"planDeleted": "Plan deleted or archived.",
+				"orderQueried": "The latest Alipay order status has been applied.",
+				"renewed": "Subscription renewed.",
+				"alipaySaved": "Alipay configuration saved."
+			},
+			"validation": {
+				"plan": "Complete the plan fields with valid values.",
+				"renewal": "Select a user and plan and enter valid renewal values.",
+				"alipay": "Complete the required Alipay credentials before enabling payments."
+			},
+			"metrics": {
+				"activeSubscriptions": "Active subscriptions",
+				"expiringSoon": "Expiring within 7 days",
+				"pendingOrders": "Pending orders",
+				"revenue": "Paid revenue"
+			},
+			"subscriptions": {
+				"title": "Subscriptions",
+				"description": "Current plan status, expiration, and network usage by user.",
+				"empty": "There are no subscriptions yet.",
+				"user": "User",
+				"plan": "Plan",
+				"status": "Status",
+				"expires": "Expires",
+				"networks": "Networks",
+				"actions": "Actions"
+			},
+			"renewal": {
+				"open": "Manual renewal",
+				"title": "Renew a subscription",
+				"description": "Apply a plan immediately and create an auditable manual payment order.",
+				"user": "User",
+				"selectUser": "Select a user",
+				"plan": "Plan",
+				"selectPlan": "Select a plan",
+				"durationMonths": "Duration (months)",
+				"amount": "Amount received (CNY)",
+				"note": "Internal note",
+				"submit": "Apply renewal"
+			},
+			"plans": {
+				"title": "Plans",
+				"description": "Each purchasable plan applies the limits of its linked user group.",
+				"add": "Add plan",
+				"create": "Create plan",
+				"edit": "Edit plan",
+				"save": "Save plan",
+				"empty": "No plans have been created.",
+				"active": "On sale",
+				"inactive": "Hidden",
+				"months": "{count, plural, one {# month} other {# months}}",
+				"editNamed": "Edit {name}",
+				"publishNamed": "Put {name} on sale",
+				"hideNamed": "Take {name} off sale",
+				"deleteNamed": "Delete {name}",
+				"deleteConfirm": "Delete plan {name}? Plans with active subscriptions must be retained or rejected by the server.",
+				"fields": {
+					"name": "Plan name",
+					"group": "User group",
+					"selectGroup": "Select a user group",
+					"price": "Price (CNY)",
+					"duration": "Duration (months)",
+					"level": "Plan level",
+					"description": "Description",
+					"active": "Available for purchase"
+				},
+				"columns": {
+					"name": "Plan",
+					"group": "User group / network limit",
+					"price": "Price",
+					"duration": "Duration",
+					"subscribers": "Subscribers",
+					"status": "Status",
+					"actions": "Actions"
+				}
+			},
+			"orders": {
+				"title": "Orders",
+				"description": "Alipay and manually recorded subscription orders.",
+				"empty": "There are no orders.",
+				"number": "Order number",
+				"user": "User",
+				"plan": "Plan",
+				"amount": "Amount",
+				"status": "Status",
+				"createdAt": "Created",
+				"tradeNo": "Alipay transaction",
+				"actions": "Actions",
+				"querying": "Querying Alipay and refreshing the order status...",
+				"queryNamed": "Query order {orderNo}"
+			},
+			"alipay": {
+				"title": "Alipay configuration",
+				"description": "Configure RSA2 credentials for Alipay computer website payments.",
+				"enable": "Enable Alipay payments",
+				"enableDescription": "Users can create payable orders only while this integration is enabled.",
+				"appId": "Application ID",
+				"sellerId": "Seller ID",
+				"gateway": "Alipay gateway",
+				"gatewayHelp": "Use an HTTPS Alipay gateway. The sandbox switch updates this value automatically.",
+				"publicKey": "Alipay public key",
+				"privateKey": "Merchant application private key",
+				"privateKeyConfigured": "Configured",
+				"privateKeyKeep": "Leave empty to keep the existing private key",
+				"privateKeyRequired": "Paste the merchant application private key",
+				"privateKeyHelp": "The existing private key is never returned to the browser. Leave this field empty to retain it.",
+				"sandbox": "Use Alipay sandbox",
+				"sandboxDescription": "Enable only for Alipay sandbox credentials and test transactions.",
+				"notifyUrl": "Asynchronous notification URL",
+				"returnUrl": "Browser return URL",
+				"save": "Save Alipay configuration"
+			}
 		}
 	}
 }

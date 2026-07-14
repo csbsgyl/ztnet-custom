@@ -2,7 +2,16 @@ import * as cron from "cron";
 import { prisma } from "./server/db";
 import * as ztController from "~/utils/ztApi";
 
-import { reconcileNetworkMembers } from "./server/api/services/memberService";
+import { reconcileNetworkMembers } from "~/server/api/services/memberService";
+import {
+	reconcileExpiredSubscriptions,
+	type ControllerUpdateInput,
+	type SuspensionPrisma,
+} from "~/server/billing/suspension";
+import { cleanupExpiredNetworkQuotaReservations } from "~/server/billing/entitlements";
+import { getAlipayRuntimeConfig } from "~/server/billing/config";
+import { queryAndReconcileAlipayOrder } from "~/server/billing/payment";
+import { fulfilPaidOrder } from "~/server/billing/runtime";
 
 type FakeContext = {
 	session: {
@@ -17,17 +26,22 @@ type FakeContext = {
  * This includes both individually expired users and users in expired groups.
  * Returns the number of users that were deactivated.
  */
-export const checkAndDeactivateExpiredUsers = async (): Promise<number> => {
+export const checkAndDeactivateExpiredUsers = async (
+	now = new Date(),
+): Promise<number> => {
 	// Check for individually expired users
 	const expUsers = await prisma.user.findMany({
 		where: {
 			expiresAt: {
-				lt: new Date(),
+				lte: now,
 			},
 			isActive: true,
 			NOT: {
 				role: "ADMIN",
 			},
+			// Once billing has created a Subscription, only the subscription
+			// suspension workflow owns expiration for that account.
+			subscription: { is: null },
 		},
 		select: {
 			network: true,
@@ -43,9 +57,10 @@ export const checkAndDeactivateExpiredUsers = async (): Promise<number> => {
 			NOT: {
 				role: "ADMIN",
 			},
+			subscription: { is: null },
 			userGroup: {
 				expiresAt: {
-					lt: new Date(),
+					lte: now,
 				},
 			},
 		},
@@ -63,23 +78,29 @@ export const checkAndDeactivateExpiredUsers = async (): Promise<number> => {
 	});
 
 	// Combine both expired user types (need to type them properly)
-	const allExpiredUsers: Array<{
-		network: Array<{ nwid: string }>;
-		id: string;
-		role: string;
-		userGroup?: {
-			name: string;
-			expiresAt: Date | null;
-		} | null;
-	}> = [
-		...expUsers.map((user) => ({ ...user, userGroup: undefined })),
-		...usersInExpiredGroups,
-	];
+	const allExpiredUsers = new Map<
+		string,
+		{
+			network: Array<{ nwid: string }>;
+			id: string;
+			role: string;
+			userGroup?: {
+				name: string;
+				expiresAt: Date | null;
+			} | null;
+		}
+	>();
+	for (const user of expUsers) {
+		allExpiredUsers.set(user.id, { ...user, userGroup: undefined });
+	}
+	for (const user of usersInExpiredGroups) {
+		allExpiredUsers.set(user.id, user);
+	}
 
 	// if no users return
-	if (allExpiredUsers.length === 0) return 0;
+	if (allExpiredUsers.size === 0) return 0;
 
-	for (const userObj of allExpiredUsers) {
+	for (const userObj of allExpiredUsers.values()) {
 		if (userObj.role === "ADMIN") continue;
 
 		const context: FakeContext = {
@@ -138,16 +159,148 @@ export const checkAndDeactivateExpiredUsers = async (): Promise<number> => {
 		});
 	}
 
-	return allExpiredUsers.length;
+	return allExpiredUsers.size;
 };
+
+async function updateSubscriptionMember({
+	userId,
+	networkId,
+	memberId,
+	authorized,
+}: ControllerUpdateInput): Promise<unknown> {
+	const context: FakeContext = { session: { user: { id: userId } } };
+	const result = await ztController.member_update({
+		ctx: context as never,
+		nwid: networkId,
+		memberId,
+		central: false,
+		updateParams: { authorized },
+	});
+
+	// The controller is the source of truth, but the local member cache is read
+	// by the UI and must move only after the controller mutation succeeds.
+	await prisma.network_members.updateMany({
+		where: { id: memberId, nwid: networkId },
+		data: { authorized },
+	});
+
+	return result;
+}
+
+export interface ExpirationMaintenanceResult {
+	subscriptions: Awaited<ReturnType<typeof reconcileExpiredSubscriptions>>;
+	legacyUsersDeactivated: number;
+	expiredReservationsDeleted: number;
+	pendingBillingOrdersClosed: number;
+	billingOrdersReconciled: number;
+}
+
+let expirationMaintenanceRun: Promise<ExpirationMaintenanceResult> | null = null;
+
+/** Runs the billing expiration workflow and the pre-billing compatibility path. */
+export const runExpirationMaintenance = async (
+	now = new Date(),
+): Promise<ExpirationMaintenanceResult> => {
+	const subscriptions = await reconcileExpiredSubscriptions(
+		{
+			prisma: prisma as unknown as SuspensionPrisma,
+			controllerUpdate: updateSubscriptionMember,
+			now: () => now,
+		},
+		{ batchSize: 100 },
+	);
+	const legacyUsersDeactivated = await checkAndDeactivateExpiredUsers(now);
+	const expiredReservationsDeleted = await cleanupExpiredNetworkQuotaReservations(
+		prisma,
+		now,
+	);
+	let billingOrdersReconciled = 0;
+	let pendingBillingOrdersClosed = 0;
+	const paidOrders = await prisma.billingOrder.findMany({
+		where: { status: "PAID" },
+		select: { id: true, merchantOrderNo: true },
+		orderBy: { paidAt: "asc" },
+		take: 100,
+	});
+	for (const order of paidOrders) {
+		try {
+			await fulfilPaidOrder(prisma, order.merchantOrderNo);
+			billingOrdersReconciled += 1;
+		} catch (error) {
+			console.error(`Failed to fulfil paid billing order ${order.id}:`, error);
+		}
+	}
+
+	const pendingOrders = await prisma.billingOrder.findMany({
+		where: {
+			source: "SELF_SERVICE",
+			status: "PENDING",
+			expiresAt: { lte: now },
+		},
+		select: { id: true },
+		orderBy: { createdAt: "asc" },
+		take: 100,
+	});
+	if (pendingOrders.length > 0) {
+		try {
+			const billingOptions = await prisma.globalOptions.findUnique({ where: { id: 1 } });
+			const alipayConfig = getAlipayRuntimeConfig(billingOptions, {
+				requireEnabled: false,
+			});
+			for (const order of pendingOrders) {
+				try {
+					const result = await queryAndReconcileAlipayOrder({
+						prisma,
+						config: alipayConfig,
+						orderId: order.id,
+					});
+					if (
+						result.state === "FULFILLED" ||
+						result.state === "FAILED" ||
+						result.state === "CLOSED"
+					) {
+						billingOrdersReconciled += 1;
+						if (result.state === "CLOSED") pendingBillingOrdersClosed += 1;
+					} else {
+						const closed = await prisma.billingOrder.updateMany({
+							where: { id: order.id, status: "PENDING" },
+							data: { status: "CLOSED", closedAt: now },
+						});
+						pendingBillingOrdersClosed += closed.count;
+					}
+				} catch (error) {
+					console.error(`Failed to reconcile billing order ${order.id}:`, error);
+				}
+			}
+		} catch (error) {
+			console.error("Alipay reconciliation is not configured correctly:", error);
+		}
+	}
+	return {
+		subscriptions,
+		legacyUsersDeactivated,
+		expiredReservationsDeleted,
+		pendingBillingOrdersClosed,
+		billingOrdersReconciled,
+	};
+};
+
+export function runExpirationMaintenanceOnce(
+	now = new Date(),
+): Promise<ExpirationMaintenanceResult> {
+	if (expirationMaintenanceRun) return expirationMaintenanceRun;
+	expirationMaintenanceRun = runExpirationMaintenance(now).finally(() => {
+		expirationMaintenanceRun = null;
+	});
+	return expirationMaintenanceRun;
+}
 
 export const CheckExpiredUsers = async () => {
 	new cron.CronJob(
-		// "*/10 * * * * *", // every 10 seconds ( testing )
-		"0 0 0 * * *", // 12:00:00 AM (midnight) every day
+		"* * * * *", // every minute
 		async () => {
 			try {
-				await checkAndDeactivateExpiredUsers();
+				await runExpirationMaintenanceOnce();
 			} catch (error) {
 				console.error("Error in CheckExpiredUsers cron job:", error);
 			}

@@ -1,8 +1,14 @@
 import { uniqueNamesGenerator } from "unique-names-generator";
-import { CustomLimitError, throwError } from "~/server/helpers/errorHandler";
+import { throwError } from "~/server/helpers/errorHandler";
 import { type Config, adjectives, animals } from "unique-names-generator";
 import { IPv4gen } from "~/utils/IPv4gen";
 import * as ztController from "~/utils/ztApi";
+import {
+	EntitlementError,
+	consumeNetworkQuotaReservation,
+	releaseNetworkQuotaReservation,
+	reserveNetworkQuota,
+} from "~/server/billing/entitlements";
 
 /**
  * Configuration object for new network name.
@@ -18,37 +24,23 @@ export const nameGeneratorConfig: Config = {
  * @param {Object} ctx - The context object.
  * @param {Object} input - The input object.
  * @returns {Promise<Object>} - The created network service.
- * @throws {CustomLimitError} - If the user has reached the maximum number of networks allowed for their user group.
+ * @throws {EntitlementError} - If the account is inactive or has no personal network quota.
  * @throws {Error} - If an error occurs while creating the network service.
  */
 export const networkProvisioningFactory = async ({ ctx, input }) => {
+	const userId = ctx.session.user.id;
+	let quotaReservationId: string | null = null;
 	try {
-		// 1. Fetch the user with its related UserGroup
-		const userWithGroup = await ctx.prisma.user.findUnique({
-			where: { id: ctx.session.user.id },
-			select: {
-				userGroup: true,
-			},
-		});
-
-		if (userWithGroup?.userGroup) {
-			// 2. Fetch the current number of networks linked to the user
-			const currentNetworksCount = await ctx.prisma.network.count({
-				where: { authorId: ctx.session.user.id },
-			});
-
-			// Check against the defined limit
-			const networkLimit = userWithGroup.userGroup.maxNetworks;
-			if (currentNetworksCount >= networkLimit) {
-				throw new CustomLimitError(
-					"You have reached the maximum number of networks allowed for your user group.",
-				);
-			}
+		if (!input.central) {
+			const reservation = await reserveNetworkQuota({ prisma: ctx.prisma }, userId);
+			quotaReservationId = reservation.id;
 		}
+
 		// get used IPs from the database
 		const usedCidr = await ctx.prisma.network.findMany({
 			where: {
-				authorId: ctx.session.user.id,
+				authorId: userId,
+				organizationId: null,
 			},
 			select: {
 				routes: true,
@@ -76,38 +68,63 @@ export const networkProvisioningFactory = async ({ ctx, input }) => {
 
 		if (input.central) return newNw;
 
-		// Store the created network in the database
-		await ctx.prisma.user.update({
-			where: {
-				id: ctx.session.user.id,
-			},
-			data: {
-				network: {
-					create: {
-						name: newNw.name,
-						nwid: newNw.nwid,
-						routes: {
-							create: ipAssignmentPools.routes.map((route) => ({
-								target: route.target,
-								via: route.via,
-							})),
+		const storeNetwork = (database) =>
+			database.user.update({
+				where: {
+					id: userId,
+				},
+				data: {
+					network: {
+						create: {
+							name: newNw.name,
+							nwid: newNw.nwid,
+							routes: {
+								create: ipAssignmentPools.routes.map((route) => ({
+									target: route.target,
+									via: route.via,
+								})),
+							},
 						},
 					},
 				},
-			},
-			select: {
-				network: true,
-			},
-		});
+				select: {
+					network: true,
+				},
+			});
+
+		if (quotaReservationId) {
+			await consumeNetworkQuotaReservation(
+				{ prisma: ctx.prisma },
+				userId,
+				quotaReservationId,
+				storeNetwork,
+			);
+			quotaReservationId = null;
+		} else {
+			await storeNetwork(ctx.prisma);
+		}
 		return newNw;
 	} catch (err: unknown) {
-		if (err instanceof CustomLimitError) {
-			throwError(err.message);
+		if (err instanceof EntitlementError) {
+			throwError(
+				err.message,
+				err.code === "NETWORK_LIMIT_REACHED" ? "PRECONDITION_FAILED" : "FORBIDDEN",
+				err,
+			);
 		} else if (err instanceof Error) {
 			console.error(err);
 			throwError("Could not create network! Please try again");
 		} else {
 			throwError("An unknown error occurred");
+		}
+	} finally {
+		if (quotaReservationId) {
+			try {
+				await releaseNetworkQuotaReservation(ctx.prisma, quotaReservationId);
+			} catch (error) {
+				// The reservation expires automatically and the minute job removes it.
+				console.error("Failed to release network quota reservation:", error);
+			}
 		}
 	}
 };

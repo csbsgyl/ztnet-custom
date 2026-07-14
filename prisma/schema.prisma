@@ -19,6 +19,33 @@ enum Role {
   ADMIN
 }
 
+enum UserSuspensionReason {
+  NONE
+  MANUAL
+  ADMIN
+  SUBSCRIPTION_EXPIRED
+}
+
+enum BillingOrderStatus {
+  PENDING
+  PAID
+  FULFILLED
+  FAILED
+  CLOSED
+  REFUNDED
+}
+
+enum BillingOrderSource {
+  SELF_SERVICE
+  MANUAL_ADMIN
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
 model GlobalOptions {
   id                    Int     @id @default(autoincrement())
   // Site
@@ -49,6 +76,13 @@ model GlobalOptions {
   notificationTemplate               Json?
   newDeviceNotificationTemplate      Json?
   deviceIpChangeNotificationTemplate Json?
+  // Alipay configuration
+  alipayEnabled                      Boolean @default(false)
+  alipayAppId                        String?
+  alipaySellerId                     String?
+  alipayGateway                      String  @default("https://openapi.alipay.com/gateway.do")
+  alipayPrivateKeyEncrypted          String? @db.Text
+  alipayPublicKey                    String? @db.Text
   // Notifications
   userRegistrationNotification       Boolean @default(false)
   // Welcome message
@@ -107,23 +141,24 @@ model network_members {
 }
 
 model network {
-  nwid               String            @id
-  name               String?
-  description        String?
-  creationTime       DateTime?
-  lastModifiedTime   DateTime?
-  flowRule           String?
-  autoAssignIp       Boolean?          @default(true)
-  nw_userid          User?             @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  authorId           String?
-  tagsByName         Json?
-  capabilitiesByName Json?
+  nwid                String                           @id
+  name                String?
+  description         String?
+  creationTime        DateTime?
+  lastModifiedTime    DateTime?
+  flowRule            String?
+  autoAssignIp        Boolean?                         @default(true)
+  nw_userid           User?                            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId            String?
+  tagsByName          Json?
+  capabilitiesByName  Json?
   // Relationships
-  organizationId     String?
-  organization       Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  networkMembers     network_members[]
-  notations          Notation[]
-  routes             Routes[]
+  organizationId      String?
+  organization        Organization?                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  networkMembers      network_members[]
+  notations           Notation[]
+  routes              Routes[]
+  suspensionSnapshots SubscriptionSuspensionSnapshot[]
 }
 
 model Routes {
@@ -230,15 +265,167 @@ enum AccessLevel {
 }
 
 model UserGroup {
-  id             Int          @id @default(autoincrement())
-  name           String       @unique
+  id             Int           @id @default(autoincrement())
+  name           String        @unique
   description    String?
-  maxNetworks    Int          @default(5)
-  accessLevel    AccessLevel  @default(WRITE)
-  isDefault      Boolean      @default(false)
+  maxNetworks    Int           @default(5)
+  accessLevel    AccessLevel   @default(WRITE)
+  isDefault      Boolean       @default(false)
   expiresAt      DateTime? // When users in this group should expire, null for no expiration
   users          User[]
   userInvitation Invitation[]
+  billingPlans   BillingPlan[]
+}
+
+model BillingPlan {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  description    String?
+  priceCents     Int
+  durationMonths Int
+  level          Int
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  userGroupId    Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userGroup     UserGroup      @relation(fields: [userGroupId], references: [id], onDelete: Restrict)
+  orders        BillingOrder[]
+  subscriptions Subscription[]
+
+  @@index([userGroupId])
+  @@index([isActive, sortOrder, level])
+}
+
+model BillingOrder {
+  id                     String             @id @default(cuid())
+  merchantOrderNo        String             @unique
+  userId                 String
+  planId                 String?
+  status                 BillingOrderStatus @default(PENDING)
+  source                 BillingOrderSource @default(SELF_SERVICE)
+  amountCents            Int
+  currency               String             @default("CNY")
+  subject                String
+  planNameSnapshot       String
+  planPriceCentsSnapshot Int
+  durationMonthsSnapshot Int
+  planLevelSnapshot      Int
+  maxNetworksSnapshot    Int
+  userGroupIdSnapshot    Int
+  baseAmountCentsSnapshot    Int
+  upgradeAmountCentsSnapshot Int                @default(0)
+  adminNote                  String?            @db.Text
+  expiresAt              DateTime
+  paidAt                 DateTime?
+  entitlementAppliedAt   DateTime?
+  fulfilledAt            DateTime?
+  closedAt               DateTime?
+  failureReason          String?            @db.Text
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  plan         BillingPlan?         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  transactions PaymentTransaction[]
+  events       PaymentEvent[]
+
+  @@index([userId, createdAt])
+  @@index([planId])
+  @@index([status, expiresAt])
+  @@index([source, createdAt])
+}
+
+model PaymentTransaction {
+  id            String   @id @default(cuid())
+  orderId       String   @unique
+  alipayTradeNo String   @unique
+  buyerId       String?
+  amountCents   Int
+  tradeStatus   String
+  rawPayload    Json
+  paidAt        DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  order BillingOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tradeStatus, paidAt])
+}
+
+model PaymentEvent {
+  id              String    @id @default(cuid())
+  eventHash       String    @unique
+  orderId         String?
+  eventType       String
+  rawPayload      Json
+  processedAt     DateTime?
+  processingError String?   @db.Text
+  createdAt       DateTime  @default(now())
+
+  order BillingOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([processedAt, createdAt])
+}
+
+model Subscription {
+  id                  String             @id @default(cuid())
+  userId              String             @unique
+  planId              String
+  status              SubscriptionStatus @default(ACTIVE)
+  startsAt            DateTime
+  expiresAt           DateTime
+  maxNetworksSnapshot Int
+  userGroupIdSnapshot Int
+  planPriceCentsSnapshot Int
+  durationMonthsSnapshot Int
+  planLevelSnapshot Int
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  user                User                             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                BillingPlan                      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  suspensionSnapshots SubscriptionSuspensionSnapshot[]
+
+  @@index([planId])
+  @@index([status, expiresAt])
+}
+
+model SubscriptionSuspensionSnapshot {
+  id             String    @id @default(cuid())
+  userId         String
+  subscriptionId String?
+  networkId      String
+  memberId       String
+  wasAuthorized  Boolean
+  suspendedAt    DateTime?
+  restoredAt     DateTime?
+  lastError      String?   @db.Text
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  network      network       @relation(fields: [networkId], references: [nwid], onDelete: Cascade)
+
+  @@unique([userId, networkId, memberId])
+  @@index([subscriptionId])
+  @@index([networkId])
+  @@index([userId, restoredAt])
+}
+
+model NetworkQuotaReservation {
+  id        String   @id @default(cuid())
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 model APIToken {
@@ -254,43 +441,49 @@ model APIToken {
 }
 
 model User {
-  id                     String                 @id @default(cuid())
-  name                   String
-  email                  String                 @unique
-  emailVerified          Boolean                @default(false)
-  lastLogin              DateTime
-  lastseen               DateTime?
-  online                 Boolean?               @default(false)
-  role                   Role                   @default(USER)
-  image                  String?
-  hash                   String?
-  tempPassword           String?
-  firstTime              Boolean                @default(true)
-  twoFactorEnabled       Boolean                @default(false)
-  twoFactorSecret        String?
-  twoFactorRecoveryCodes String[]               @default([])
-  failedLoginAttempts    Int                    @default(0)
-  lastFailedLoginAttempt DateTime?
-  requestChangePassword  Boolean                @default(false)
-  userGroupId            Int?
-  memberOfOrgs           Organization[]         @relation("MemberRelation") // user can be member of multiple organizations
-  organizationRoles      UserOrganizationRole[]
-  membershipRequests     MembershipRequest[]    @relation("MembershipRequestsForUser")
-  messages               Messages[]
-  lastReadByUsers        LastReadMessage[]
-  ActivityLog            ActivityLog[]
-  expiresAt              DateTime? // null means it never expires
-  isActive               Boolean                @default(true)
-  createdAt              DateTime               @default(now())
-  userGroup              UserGroup?             @relation(fields: [userGroupId], references: [id], onDelete: Restrict)
-  options                UserOptions?
-  accounts               Account[]
-  sessions               Session[]
-  network                network[]
-  apiTokens              APIToken[]
-  webhooks               Webhook[]
-  invitations            Invitation[]           @relation("InvitationsSent")
-  UserDevice             UserDevice[]
+  id                       String                           @id @default(cuid())
+  name                     String
+  email                    String                           @unique
+  emailVerified            Boolean                          @default(false)
+  lastLogin                DateTime
+  lastseen                 DateTime?
+  online                   Boolean?                         @default(false)
+  role                     Role                             @default(USER)
+  image                    String?
+  hash                     String?
+  tempPassword             String?
+  firstTime                Boolean                          @default(true)
+  twoFactorEnabled         Boolean                          @default(false)
+  twoFactorSecret          String?
+  twoFactorRecoveryCodes   String[]                         @default([])
+  failedLoginAttempts      Int                              @default(0)
+  lastFailedLoginAttempt   DateTime?
+  requestChangePassword    Boolean                          @default(false)
+  userGroupId              Int?
+  memberOfOrgs             Organization[]                   @relation("MemberRelation") // user can be member of multiple organizations
+  organizationRoles        UserOrganizationRole[]
+  membershipRequests       MembershipRequest[]              @relation("MembershipRequestsForUser")
+  messages                 Messages[]
+  lastReadByUsers          LastReadMessage[]
+  ActivityLog              ActivityLog[]
+  expiresAt                DateTime? // null means it never expires
+  isActive                 Boolean                          @default(true)
+  suspensionReason         UserSuspensionReason             @default(NONE)
+  legacyBillingExempt      Boolean                          @default(false)
+  createdAt                DateTime                         @default(now())
+  userGroup                UserGroup?                       @relation(fields: [userGroupId], references: [id], onDelete: Restrict)
+  options                  UserOptions?
+  accounts                 Account[]
+  sessions                 Session[]
+  network                  network[]
+  apiTokens                APIToken[]
+  webhooks                 Webhook[]
+  invitations              Invitation[]                     @relation("InvitationsSent")
+  UserDevice               UserDevice[]
+  billingOrders            BillingOrder[]
+  subscription             Subscription?
+  suspensionSnapshots      SubscriptionSuspensionSnapshot[]
+  networkQuotaReservations NetworkQuotaReservation[]
 }
 
 model UserDevice {

@@ -5,10 +5,10 @@ import "@tanstack/react-table";
 type Messages = typeof import("./locales/en/common.json");
 declare type IntlMessages = Messages;
 
-declare module "@tanstack/table-core" {
+declare module "@tanstack/react-table" {
 	interface ColumnMeta<TData extends RowData, TValue> {
-		style: {
-			textAlign: "left" | "center" | "right";
+		style?: {
+			textAlign?: "left" | "center" | "right";
 		};
 	}
 }

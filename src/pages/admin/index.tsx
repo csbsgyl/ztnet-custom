@@ -28,7 +28,8 @@ const AdminSettings = ({ orgIds }) => {
 	interface ITab {
 		name: string;
 		value: string;
-		component: ReactElement;
+		component?: ReactElement;
+		href?: string;
 	}
 
 	const tabs: ITab[] = [
@@ -68,6 +69,11 @@ const AdminSettings = ({ orgIds }) => {
 			component: <BackupRestore />,
 		},
 		{
+			name: t("billing"),
+			value: "billing",
+			href: "/admin/billing",
+		},
+		{
 			name: t("systemUpdate"),
 			value: "system-update",
 			component: <SystemUpdate />,
@@ -81,10 +87,12 @@ const AdminSettings = ({ orgIds }) => {
 				{tabs.map((t) => (
 					<Link
 						key={t.value}
-						href={`/admin?tab=${t.value}`}
+						href={t.href ?? `/admin?tab=${t.value}`}
 						role="tab"
 						className={`text-md uppercase tab ${
-							t.value === tab ? "tab-active" : "text-gray-600"
+							t.value === tab || t.href === router.pathname
+								? "tab-active"
+								: "text-gray-600"
 						}`}
 					>
 						{t.name}

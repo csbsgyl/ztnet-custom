@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { prisma } from "~/server/db";
 import { AuthorizationType } from "~/types/apiTypes";
+import { canAccessProtectedResources } from "./accountAccess";
 
 const ZTNET_SECRET = process.env.NEXTAUTH_SECRET;
 
@@ -121,17 +122,22 @@ export async function decryptAndVerifyToken({
 		},
 		select: {
 			expiresAt: true,
+			isActive: true,
+			token: true,
 		},
 	});
-	if (!token) {
+	if (!token || token.token !== apiKey) {
+		throw new Error("Invalid token");
+	}
+	if (!token.isActive) {
 		throw new Error("Invalid token");
 	}
 
 	// check if the token is expired
 	if (token.expiresAt) {
 		const expiresAt = new Date(token.expiresAt);
-		if (expiresAt < new Date()) {
-			throw new Error("Token expired");
+		if (expiresAt.getTime() <= Date.now()) {
+			throw new Error("Invalid token");
 		}
 	}
 
@@ -143,24 +149,22 @@ export async function decryptAndVerifyToken({
 		select: {
 			id: true,
 			role: true,
-			apiTokens: {
-				where: {
-					token: apiKey,
-				},
-			},
+			isActive: true,
+			suspensionReason: true,
+			expiresAt: true,
 		},
 	});
 
 	if (!user) {
-		throw new Error("Unauthorized");
+		throw new Error("Invalid token");
 	}
 
-	if (user.apiTokens.length === 0) {
-		throw new Error("Invalid or expired token");
+	if (!canAccessProtectedResources(user)) {
+		throw new Error("Invalid token");
 	}
 
 	if (user.role !== "ADMIN" && requireAdmin) {
-		throw new Error("Unauthorized");
+		throw new Error("Invalid token");
 	}
 
 	return decryptedData;

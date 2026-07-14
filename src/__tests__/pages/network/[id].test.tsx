@@ -20,6 +20,27 @@ enum ConnectionStatus {
 	DirectLAN = 1,
 	DirectWAN = 2,
 }
+
+jest.mock("@uiw/react-codemirror", () => {
+	const React = jest.requireActual<typeof import("react")>("react");
+	return {
+		__esModule: true,
+		default: ({
+			value = "",
+			onChange,
+		}: {
+			value?: string;
+			onChange?: (value: string) => void;
+		}) =>
+			React.createElement("textarea", {
+				"data-testid": "code-mirror",
+				value,
+				onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+					onChange?.(event.target.value),
+			}),
+	};
+});
+
 jest.mock("~/server/db", () => ({
 	prisma: {
 		organization: {

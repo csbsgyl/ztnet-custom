@@ -19,13 +19,22 @@ import type { Session } from "~/lib/authTypes";
 import type { Server as SocketIOServer } from "socket.io";
 import { getServerAuthSession } from "~/lib/authSession";
 import { prisma } from "~/server/db";
+import { canAccessProtectedResources } from "~/utils/accountAccess";
 import { networkMembersChannel } from "~/utils/socketChannels";
 
 type CreateContextOptions = {
 	session: Session | null;
 	wss: SocketIOServer;
 	res: NextApiResponse;
-	req: CreateNextContextOptions["req"];
+	req?: CreateNextContextOptions["req"];
+};
+
+type InnerTRPCContext = {
+	session: Session | null;
+	wss: SocketIOServer;
+	prisma: typeof prisma;
+	res: NextApiResponse;
+	req?: CreateNextContextOptions["req"];
 };
 
 // custom type for the socket server
@@ -49,7 +58,7 @@ interface SocketServerCtx {
  *
  * @see https://create.t3.gg/en/usage/trpc#-servertrpccontextts
  */
-export const createInnerTRPCContext = (opts: CreateContextOptions) => {
+export const createInnerTRPCContext = (opts: CreateContextOptions): InnerTRPCContext => {
 	return {
 		session: opts.session,
 		wss: opts.wss,
@@ -129,15 +138,41 @@ export const createTRPCRouter = t.router;
  */
 export const publicProcedure = t.procedure;
 
-/** Reusable middleware that enforces users are logged in before running the procedure. */
-const enforceUserIsAuthed = t.middleware(({ ctx, next }) => {
+const protectedAccountSelect = {
+	id: true,
+	role: true,
+	isActive: true,
+	suspensionReason: true,
+	expiresAt: true,
+} as const;
+
+/** Reusable middleware that enforces users are logged in and currently active. */
+const enforceUserIsAuthed = t.middleware(async ({ ctx, next }) => {
 	if (!ctx.session || !ctx.session.user) {
 		throw new TRPCError({ code: "UNAUTHORIZED" });
 	}
+
+	const account = await ctx.prisma.user.findUnique({
+		where: { id: ctx.session.user.id },
+		select: protectedAccountSelect,
+	});
+	if (!account) {
+		throw new TRPCError({ code: "UNAUTHORIZED" });
+	}
+	if (!canAccessProtectedResources(account)) {
+		throw new TRPCError({
+			code: "FORBIDDEN",
+			message: "Account is inactive or expired",
+		});
+	}
+
 	return next({
 		ctx: {
 			// infers the `session` as non-nullable
-			session: { ...ctx.session, user: ctx.session.user },
+			session: {
+				...ctx.session,
+				user: { ...ctx.session.user, ...account },
+			},
 		},
 	});
 });
@@ -149,12 +184,24 @@ const enforceUserIsAdmin = t.middleware(async ({ ctx, next }) => {
 		throw new TRPCError({ code: "UNAUTHORIZED" });
 	}
 
-	// Check if the user has the ADMIN role
-	if (!ctx.session.user || ctx.session.user.role !== "ADMIN") {
+	const account = await ctx.prisma.user.findUnique({
+		where: { id: ctx.session.user.id },
+		select: protectedAccountSelect,
+	});
+
+	// Preserve the session role guard and confirm it against current database state.
+	if (ctx.session.user.role !== "ADMIN" || !account || account.role !== "ADMIN") {
 		throw new TRPCError({ code: "FORBIDDEN" });
 	}
 
-	return next();
+	return next({
+		ctx: {
+			session: {
+				...ctx.session,
+				user: { ...ctx.session.user, ...account },
+			},
+		},
+	});
 });
 /**
  * After any successful mutation carrying a network id, push a live "changed"

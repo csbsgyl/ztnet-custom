@@ -147,6 +147,18 @@ export function createGenericApiTests(
 				validTokenData,
 				generateInstanceSecret(API_TOKEN_SECRET),
 			);
+			prisma.aPIToken.findUnique = jest.fn().mockResolvedValue({
+				token: validToken,
+				isActive: true,
+				expiresAt: new Date(Date.now() + 100_000),
+			});
+			prisma.user.findUnique = jest.fn().mockResolvedValue({
+				id: "testUserId",
+				role: "USER",
+				isActive: true,
+				suspensionReason: "NONE",
+				expiresAt: null,
+			});
 			mockRequest.headers["x-ztnet-auth"] = validToken;
 
 			prisma.userOrganizationRole.findFirst = jest.fn().mockResolvedValue(null);

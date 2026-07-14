@@ -121,6 +121,7 @@ describe("organization api validation", () => {
 		prisma.aPIToken.findUnique = jest.fn().mockResolvedValue({
 			expiresAt: new Date(Date.now() + 100000).toISOString(),
 			token: unauthorizedToken,
+			isActive: true,
 			userId: "testUserId",
 			tokenId: "testTokenId",
 		});

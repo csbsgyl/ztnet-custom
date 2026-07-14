@@ -27,11 +27,15 @@ import { checkAndDeactivateExpiredUsers } from "~/cronTasks";
 import { getSystemUpdateStatus, triggerSystemUpdate } from "~/server/systemUpdate";
 import { upsertCredentialAccount } from "~/server/api/services/credentialAccountService";
 import { hasUppercaseEmail, normalizeEmail } from "~/utils/email";
+import { disconnectUserSockets } from "~/server/socketRegistry";
 
 type WithError<T> = T & { error?: boolean; message?: string };
-type GlobalOptionsResponse = WithError<Omit<GlobalOptions, "smtpPassword">> & {
+type GlobalOptionsResponse = WithError<
+	Omit<GlobalOptions, "smtpPassword" | "alipayPrivateKeyEncrypted">
+> & {
 	smtpPassword: null;
 	hasSmtpPassword: boolean;
+	hasAlipayPrivateKey: boolean;
 };
 
 export const adminRouter = createTRPCRouter({
@@ -71,14 +75,30 @@ export const adminRouter = createTRPCRouter({
 				throwError("You can't change the status of admin users");
 			}
 
-			return await ctx.prisma.user.update({
-				where: {
-					id: input.id,
-				},
-				data: {
-					...input.params,
-				},
+			const changingActiveState = input.params.isActive !== undefined;
+			const updated = await ctx.prisma.$transaction(async (transaction) => {
+				const result = await transaction.user.update({
+					where: { id: input.id },
+					data: {
+						...input.params,
+						...(changingActiveState
+							? {
+									suspensionReason: input.params.isActive ? "NONE" : "ADMIN",
+								}
+							: {}),
+					},
+				});
+				if (input.params.isActive === false) {
+					await transaction.session.deleteMany({ where: { userId: input.id } });
+					await transaction.aPIToken.updateMany({
+						where: { userId: input.id, isActive: true },
+						data: { isActive: false },
+					});
+				}
+				return result;
 			});
+			if (input.params.isActive === false) disconnectUserSockets(input.id);
+			return updated;
 		}),
 	deleteUser: adminRoleProtectedRoute
 		.input(
@@ -454,11 +474,13 @@ export const adminRouter = createTRPCRouter({
 			}
 			// Never send actual password to client - only indicate if one exists
 			if (options) {
+				const { smtpPassword, alipayPrivateKeyEncrypted, ...publicOptions } = options;
 				return {
-					...options,
+					...publicOptions,
 					smtpPassword: null,
-					hasSmtpPassword: Boolean(options.smtpPassword),
-				} as GlobalOptionsResponse;
+					hasSmtpPassword: Boolean(smtpPassword),
+					hasAlipayPrivateKey: Boolean(alipayPrivateKeyEncrypted),
+				};
 			}
 			return null;
 		},
@@ -490,6 +512,7 @@ export const adminRouter = createTRPCRouter({
 							userGroupId: null,
 							expiresAt: null,
 							isActive: true,
+							suspensionReason: "NONE" as const,
 						}
 					: {
 							role: role as Role,

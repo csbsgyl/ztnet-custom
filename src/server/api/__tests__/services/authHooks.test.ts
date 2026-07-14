@@ -25,6 +25,9 @@ jest.mock("~/server/db", () => ({
 		userGroup: {
 			findFirst: jest.fn(),
 		},
+		subscription: {
+			findFirst: jest.fn(),
+		},
 		userDevice: {
 			findUnique: jest.fn(),
 			upsert: jest.fn(),
@@ -242,6 +245,30 @@ describe("onSessionCreated", () => {
 			userGroup: { expiresAt: new Date(Date.now() - 1000) },
 		});
 		await expect(onSessionCreated("u1", makeCtx())).rejects.toThrow(/account-expired/);
+	});
+
+	it("allows an active paid subscription to override an expired legacy group", async () => {
+		(prisma.user.findUnique as jest.Mock)
+			.mockResolvedValueOnce({
+				...ACTIVE_USER,
+				userGroup: { expiresAt: new Date(Date.now() - 1000) },
+			})
+			.mockResolvedValueOnce({ id: "u1", email: ACTIVE_USER.email });
+		(prisma.subscription.findFirst as jest.Mock).mockResolvedValue({ id: "sub-1" });
+		(prisma.user.update as jest.Mock).mockResolvedValue({});
+		(prisma.userDevice.findUnique as jest.Mock).mockResolvedValue(null);
+		(prisma.userDevice.upsert as jest.Mock).mockResolvedValue({});
+
+		await expect(onSessionCreated("u1", makeCtx())).resolves.toBeUndefined();
+		expect(prisma.subscription.findFirst).toHaveBeenCalledWith({
+			where: {
+				userId: "u1",
+				status: "ACTIVE",
+				startsAt: { lte: expect.any(Date) },
+				expiresAt: { gt: expect.any(Date) },
+			},
+			select: { id: true },
+		});
 	});
 
 	it("does NOT reject ADMIN even when their userGroup is expired", async () => {

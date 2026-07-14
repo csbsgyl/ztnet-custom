@@ -5,7 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useSidebarStore, useSocketStore } from "~/utils/store";
 import { api } from "~/utils/api";
-import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import {
+	ArrowPathIcon,
+	BanknotesIcon,
+	CreditCardIcon,
+} from "@heroicons/react/24/outline";
 
 // Custom hook to check if the screen width is below the 'md' breakpoint
 const useIsBelowMd = () => {
@@ -133,6 +137,23 @@ const Sidebar = (): JSX.Element => {
 							<span className="ml-3">{t("networks")}</span>
 						</Link>
 					</li>
+					{me && me.role !== "ADMIN" ? (
+						<li className="my-px">
+							<Link
+								href="/billing"
+								className={`flex h-10 flex-row items-center rounded-lg px-3 ${
+									router.pathname.startsWith("/billing")
+										? "bg-gray-100 text-gray-700"
+										: "hover:bg-slate-700"
+								}`}
+							>
+								<span className="flex items-center justify-center text-lg text-gray-400">
+									<CreditCardIcon className="h-6 w-6" />
+								</span>
+								<span className="ml-3">{t("billing")}</span>
+							</Link>
+						</li>
+					) : null}
 					{me?.options?.ztCentralApiKey ? (
 						<li className="my-px">
 							<Link
@@ -231,6 +252,21 @@ const Sidebar = (): JSX.Element => {
 								<span className="my-4 flex px-4 text-sm font-medium uppercase text-primary ">
 									{t("admin")}
 								</span>
+							</li>
+							<li className="my-px">
+								<Link
+									href="/admin/billing"
+									className={`flex h-10 flex-row items-center rounded-lg px-3 ${
+										router.pathname.startsWith("/admin/billing")
+											? "bg-gray-100 text-gray-700"
+											: "hover:bg-slate-700"
+									}`}
+								>
+									<span className="flex items-center justify-center text-lg text-gray-400">
+										<BanknotesIcon className="h-6 w-6" />
+									</span>
+									<span className="ml-3">{t("billing")}</span>
+								</Link>
 							</li>
 							<li className="my-px">
 								<Link

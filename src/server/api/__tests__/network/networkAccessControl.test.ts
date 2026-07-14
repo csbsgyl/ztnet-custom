@@ -26,7 +26,6 @@ const prisma = new PrismaClient();
 
 const ownerSession: PartialDeep<Session> = {
 	expires: new Date().toISOString(),
-	update: { name: "test" },
 	user: {
 		id: "owner-user-id",
 		name: "Network Owner",
@@ -36,7 +35,6 @@ const ownerSession: PartialDeep<Session> = {
 
 const attackerSession: PartialDeep<Session> = {
 	expires: new Date().toISOString(),
-	update: { name: "test" },
 	user: {
 		id: "attacker-user-id",
 		name: "Attacker",
@@ -46,7 +44,6 @@ const attackerSession: PartialDeep<Session> = {
 
 const orgMemberSession: PartialDeep<Session> = {
 	expires: new Date().toISOString(),
-	update: { name: "test" },
 	user: {
 		id: "org-member-id",
 		name: "Org Member",
@@ -97,6 +94,15 @@ const mockNetworkNotFound = () => {
 describe("checkNetworkAccess - helper behavior via endpoints", () => {
 	beforeEach(() => {
 		jest.clearAllMocks();
+		prisma.user.findUnique = jest.fn().mockImplementation(({ where }) =>
+			Promise.resolve({
+				id: where.id,
+				role: "USER",
+				isActive: true,
+				suspensionReason: "NONE",
+				expiresAt: null,
+			}),
+		) as never;
 	});
 
 	describe("Network not found", () => {

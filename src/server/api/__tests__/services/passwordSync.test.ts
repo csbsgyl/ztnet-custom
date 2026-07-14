@@ -59,9 +59,17 @@ const session: PartialDeep<Session> = {
 
 function makePrismaMock(user: Record<string, unknown>): PrismaClient {
 	const prismaMock = new PrismaClient();
-	prismaMock.user.findFirst = jest.fn().mockResolvedValue(user) as never;
-	prismaMock.user.findUnique = jest.fn().mockResolvedValue(user) as never;
-	prismaMock.user.update = jest.fn().mockResolvedValue(user) as never;
+	const currentUser = {
+		id: "user_1",
+		role: Role.USER,
+		isActive: true,
+		suspensionReason: "NONE",
+		expiresAt: null,
+		...user,
+	};
+	prismaMock.user.findFirst = jest.fn().mockResolvedValue(currentUser) as never;
+	prismaMock.user.findUnique = jest.fn().mockResolvedValue(currentUser) as never;
+	prismaMock.user.update = jest.fn().mockResolvedValue(currentUser) as never;
 	prismaMock.user.count = jest.fn().mockResolvedValue(1) as never;
 	prismaMock.user.create = jest
 		.fn()
@@ -187,7 +195,7 @@ describe("auth router password mutations sync Account.password", () => {
 	});
 
 	test("admin.createUser accepts lowercase email and stores the generated password for login", async () => {
-		const prisma = makePrismaMock({}) as PrismaClient;
+		const prisma = makePrismaMock({ role: Role.ADMIN }) as PrismaClient;
 		prisma.user.findFirst = jest.fn().mockResolvedValue(null) as never;
 		prisma.user.create = jest.fn().mockResolvedValue({
 			id: "user_admin_created",
@@ -222,15 +230,15 @@ describe("auth router password mutations sync Account.password", () => {
 		const createArgs = (prisma.user.create as jest.Mock).mock.calls[0][0];
 		expect(createArgs.data.email).toBe("heodel@163.com");
 		expect(bcrypt.compareSync(password, createArgs.data.hash)).toBe(true);
-		expect(upsertCredentialAccount).toHaveBeenCalledWith(
-			"user_admin_created",
-			createArgs.data.hash,
-			prisma,
-		);
+		expect(upsertCredentialAccount).toHaveBeenCalledTimes(1);
+		const credentialCall = mockedUpsert.mock.calls[0];
+		expect(credentialCall?.[0]).toBe("user_admin_created");
+		expect(credentialCall?.[1]).toBe(createArgs.data.hash);
+		expect(credentialCall?.[2]).toBe(prisma);
 	});
 
 	test("admin.createUser rejects email containing uppercase letters before database access", async () => {
-		const prisma = makePrismaMock({}) as PrismaClient;
+		const prisma = makePrismaMock({ role: Role.ADMIN }) as PrismaClient;
 		prisma.user.findFirst = jest.fn().mockResolvedValue(null) as never;
 
 		const caller = appRouter.createCaller({
