@@ -19,13 +19,15 @@ Use the public image built from this fork:
 curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
 ```
 
-For a mainland China server, download the same script through the GitHub accelerator:
+For a mainland China server, try the official GitHub API first. This endpoint is often reachable even when `raw.githubusercontent.com` is not:
 
 ```bash
-curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+curl --retry 2 --retry-all-errors -fL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo bash
 ```
 
-To try GitHub directly first and safely fall back to the accelerator, run this block as one command:
+To automatically try multiple download paths, run this block as one command:
 
 ```bash
 (
@@ -34,13 +36,27 @@ To try GitHub directly first and safely fall back to the accelerator, run this b
   cleanup() { rm -f "$installer"; }
   trap cleanup EXIT
   direct_url="https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh"
-  accelerated_url="https://github.xiaohangyun.org/${direct_url}"
-  download() {
-    curl --retry 2 --retry-all-errors -fsSL --connect-timeout 8 --max-time 60 "$1" -o "$installer" &&
-      head -n 1 "$installer" | grep -qx '#!/usr/bin/env bash'
-  }
-  download "$direct_url" || download "$accelerated_url"
-  sudo bash "$installer"
+  urls=(
+    'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main'
+    "$direct_url"
+    "https://ghproxy.net/${direct_url}"
+    "https://ghfast.top/${direct_url}"
+    "https://gh-proxy.com/${direct_url}"
+    "https://github.xiaohangyun.org/${direct_url}"
+  )
+  for url in "${urls[@]}"; do
+    printf '[INFO] Trying %s\n' "$url"
+    if curl --retry 1 --retry-all-errors -fL \
+      -H 'Accept: application/vnd.github.raw+json' \
+      --connect-timeout 8 --max-time 45 \
+      "$url" -o "$installer" &&
+      head -n 1 "$installer" | grep -qx '#!/usr/bin/env bash'; then
+      sudo bash "$installer"
+      exit
+    fi
+  done
+  printf '[ERROR] All installer download sources failed.\n' >&2
+  exit 1
 )
 ```
 
@@ -57,7 +73,9 @@ Automatic ZTNET updates are enabled by default. The updater checks the configure
 Existing installations need to run the installer once to add the background updater. Existing database credentials, auth secrets, public URL, and update settings are preserved:
 
 ```bash
-curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+curl --retry 2 --retry-all-errors -fL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo bash
 ```
 
 After that one-time command, future application releases are detected and installed in the background. View updater activity with:
@@ -70,13 +88,17 @@ docker compose logs -f updater
 Change the polling interval to ten minutes:
 
 ```bash
-curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE_INTERVAL=600 bash
+curl --retry 2 --retry-all-errors -fL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo env AUTO_UPDATE_INTERVAL=600 bash
 ```
 
 Disable background updates and remove the updater container:
 
 ```bash
-curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE=false bash
+curl --retry 2 --retry-all-errors -fL \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo env AUTO_UPDATE=false bash
 ```
 
 Old application images are retained by default for manual rollback. Set `AUTO_UPDATE_CLEANUP=true` only when automatic removal of replaced images is preferred.
