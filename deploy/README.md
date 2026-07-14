@@ -7,6 +7,7 @@ The installer creates a Docker Compose deployment with:
 - PostgreSQL
 - ZeroTier
 - ZTNET
+- A scoped background updater for ZTNET
 
 Supported hosts: Linux `amd64` and `arm64`.
 
@@ -48,6 +49,37 @@ To deploy the unmodified upstream image with this installer instead:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env ZTNET_IMAGE=sinamics/ztnet:latest bash
 ```
+
+## Automatic updates
+
+Automatic ZTNET updates are enabled by default. The updater checks the configured ZTNET image digest every hour and recreates only the ZTNET application container when the digest changes. PostgreSQL, ZeroTier, and the updater itself are not automatically upgraded.
+
+Existing installations need to run the installer once to add the background updater. Existing database credentials, auth secrets, public URL, and update settings are preserved:
+
+```bash
+curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+```
+
+After that one-time command, future application releases are detected and installed in the background. View updater activity with:
+
+```bash
+cd /opt/ztnet-custom
+docker compose logs -f updater
+```
+
+Change the polling interval to ten minutes:
+
+```bash
+curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE_INTERVAL=600 bash
+```
+
+Disable background updates and remove the updater container:
+
+```bash
+curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env AUTO_UPDATE=false bash
+```
+
+Old application images are retained by default for manual rollback. Set `AUTO_UPDATE_CLEANUP=true` only when automatic removal of replaced images is preferred.
 
 ## Registry acceleration
 
@@ -109,6 +141,11 @@ Supported environment variables:
 | `ZTNET_MIRROR_IMAGE` | empty | Exact fallback image for the fork, useful when GHCR is unavailable. |
 | `ZEROTIER_MIRROR_IMAGE` | auto-generated | Override the mirror image selected for ZeroTier. |
 | `POSTGRES_MIRROR_IMAGE` | auto-generated | Override the mirror image selected for PostgreSQL. |
+| `AUTO_UPDATE` | `true` | Enable the scoped background updater for ZTNET only. |
+| `AUTO_UPDATE_INTERVAL` | `3600` | Seconds between image digest checks; minimum `60`. |
+| `AUTO_UPDATE_CLEANUP` | `false` | Remove replaced images after a successful update. |
+| `UPDATER_IMAGE` | `nickfedor/watchtower:1.19.0` | Background updater image. |
+| `UPDATER_MIRROR_IMAGE` | auto-generated | Override the Docker mirror image selected for the updater. |
 
 ## Operational commands
 
@@ -116,6 +153,7 @@ Supported environment variables:
 cd /opt/ztnet-custom
 docker compose ps
 docker compose logs -f ztnet
+docker compose logs -f updater
 docker compose pull
 docker compose up -d
 ```
@@ -129,4 +167,7 @@ docker compose up -d
 - The mirror is a third-party service. Change `DOCKER_MIRROR_URL` or use `DOCKER_MIRROR_MODE=never` if its trust or availability changes.
 - `github.xiaohangyun.org` accelerates GitHub file downloads only. It is not a Docker Registry and does not replace the GHCR image URL.
 - The GitHub accelerator is a third-party download proxy. Its response is checked against the committed installer in CI, but operators should still use only accelerators they trust.
+- Automatic updates require mounting `/var/run/docker.sock` into the updater, which grants Docker daemon control. The updater is scoped and label-restricted to the ZTNET application container.
+- Automatic updates require a mutable image tag such as `latest`; digest-pinned images intentionally do not move to newer releases.
+- Keep database backups. Application releases may include database migrations even though the PostgreSQL container itself is not updated.
 - If you prefer manual deployment, copy `deploy/docker-compose.yml` and create a `.env` file from the variable list above.

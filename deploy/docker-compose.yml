@@ -52,9 +52,26 @@ services:
       NEXTAUTH_URL_INTERNAL: http://ztnet:3000
     networks:
       - app-network
+    labels:
+      com.centurylinklabs.watchtower.enable: "${AUTO_UPDATE:-true}"
+      com.centurylinklabs.watchtower.scope: "${APP_NAME:-ztnet-custom}"
     depends_on:
       - postgres
       - zerotier
+
+  updater:
+    image: ${UPDATER_IMAGE:-nickfedor/watchtower:1.19.0}
+    container_name: ${APP_NAME:-ztnet-custom}-updater
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_SCOPE: "${APP_NAME:-ztnet-custom}"
+      WATCHTOWER_POLL_INTERVAL: "${AUTO_UPDATE_INTERVAL:-3600}"
+      WATCHTOWER_CLEANUP: "${AUTO_UPDATE_CLEANUP:-false}"
+    labels:
+      com.centurylinklabs.watchtower.scope: "${APP_NAME:-ztnet-custom}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   zerotier:

@@ -49,6 +49,8 @@ The one-click installer automatically detects registry connectivity and can fall
 
 GitHub source and Raw downloads can use `https://github.xiaohangyun.org/<original-url>`. The deployment guide includes both an accelerator-only command and a direct-first download block that validates the script before execution.
 
+The generated deployment includes a scoped Watchtower updater based on `nickfedor/watchtower:1.19.0`. It checks only the fork's ZTNET image by label and leaves PostgreSQL and ZeroTier versions under explicit operator control.
+
 ## Container image
 
 This fork includes a GHCR workflow at `.github/workflows/ghcr-image.yml`.

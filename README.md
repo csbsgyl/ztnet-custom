@@ -53,7 +53,7 @@ Mainland China GitHub accelerator:
 curl -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
 ```
 
-The installer automatically detects registry connectivity and falls back to `docker.xiaohangyun.org` for eligible Docker Hub images. See [deploy/README.md](deploy/README.md#quick-start) for safe GitHub download fallback and [registry acceleration](deploy/README.md#registry-acceleration) for mirror modes and GHCR fallback configuration.
+The installer enables hourly background updates for the ZTNET application, automatically detects registry connectivity, and falls back to `docker.xiaohangyun.org` for eligible Docker Hub images. See [automatic updates](deploy/README.md#automatic-updates), [safe GitHub download fallback](deploy/README.md#quick-start), and [registry acceleration](deploy/README.md#registry-acceleration).
 
 ### [See Installation Instruction](https://ztnet.network/installation/docker-compose)
 

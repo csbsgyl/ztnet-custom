@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+POSTGRES_USER_PROVIDED="${POSTGRES_USER+x}"
+POSTGRES_DB_PROVIDED="${POSTGRES_DB+x}"
+POSTGRES_PASSWORD_PROVIDED="${POSTGRES_PASSWORD+x}"
+NEXTAUTH_SECRET_PROVIDED="${NEXTAUTH_SECRET+x}"
+NEXTAUTH_URL_PROVIDED="${NEXTAUTH_URL+x}"
+AUTO_UPDATE_PROVIDED="${AUTO_UPDATE+x}"
+AUTO_UPDATE_INTERVAL_PROVIDED="${AUTO_UPDATE_INTERVAL+x}"
+AUTO_UPDATE_CLEANUP_PROVIDED="${AUTO_UPDATE_CLEANUP+x}"
+
 APP_NAME="${APP_NAME:-ztnet-custom}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
 HTTP_PORT="${HTTP_PORT:-3000}"
@@ -21,6 +30,11 @@ REGISTRY_PROBE_TIMEOUT="${REGISTRY_PROBE_TIMEOUT:-8}"
 ZTNET_MIRROR_IMAGE="${ZTNET_MIRROR_IMAGE:-}"
 ZEROTIER_MIRROR_IMAGE="${ZEROTIER_MIRROR_IMAGE:-}"
 POSTGRES_MIRROR_IMAGE="${POSTGRES_MIRROR_IMAGE:-}"
+AUTO_UPDATE="${AUTO_UPDATE:-true}"
+AUTO_UPDATE_INTERVAL="${AUTO_UPDATE_INTERVAL:-3600}"
+AUTO_UPDATE_CLEANUP="${AUTO_UPDATE_CLEANUP:-false}"
+UPDATER_IMAGE="${UPDATER_IMAGE:-nickfedor/watchtower:1.19.0}"
+UPDATER_MIRROR_IMAGE="${UPDATER_MIRROR_IMAGE:-}"
 
 MIRROR_REGISTRY=""
 MIRROR_API_URL=""
@@ -48,6 +62,66 @@ is_unsigned_integer() {
 		"" | *[!0-9]*) return 1 ;;
 		*) return 0 ;;
 	esac
+}
+
+normalize_boolean() {
+	local variable_name="$1"
+	local value="$2"
+
+	case "$value" in
+		1 | true | TRUE | yes | YES | on | ON) printf -v "$variable_name" '%s' "true" ;;
+		0 | false | FALSE | no | NO | off | OFF) printf -v "$variable_name" '%s' "false" ;;
+		*) fail "${variable_name} must be true or false." ;;
+	esac
+}
+
+validate_auto_update() {
+	normalize_boolean "AUTO_UPDATE" "$AUTO_UPDATE"
+	normalize_boolean "AUTO_UPDATE_CLEANUP" "$AUTO_UPDATE_CLEANUP"
+	is_unsigned_integer "$AUTO_UPDATE_INTERVAL" || fail "AUTO_UPDATE_INTERVAL must be an unsigned integer."
+	[ "$AUTO_UPDATE_INTERVAL" -ge 60 ] || fail "AUTO_UPDATE_INTERVAL must be at least 60 seconds."
+}
+
+read_existing_env_value() {
+	local file="$1"
+	local key="$2"
+
+	awk -v key="$key" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); exit }' "$file"
+}
+
+restore_existing_value() {
+	local variable_name="$1"
+	local was_provided="$2"
+	local key="$3"
+	local file="$4"
+	local value
+
+	if [ "$was_provided" = "x" ]; then
+		return
+	fi
+
+	value="$(read_existing_env_value "$file" "$key" || true)"
+	if [ -n "$value" ]; then
+		printf -v "$variable_name" '%s' "$value"
+	fi
+}
+
+load_existing_environment() {
+	local file="${INSTALL_DIR}/.env"
+
+	if [ ! -f "$file" ]; then
+		return
+	fi
+
+	info "Preserving existing deployment settings from ${file}"
+	restore_existing_value "POSTGRES_USER" "$POSTGRES_USER_PROVIDED" "POSTGRES_USER" "$file"
+	restore_existing_value "POSTGRES_DB" "$POSTGRES_DB_PROVIDED" "POSTGRES_DB" "$file"
+	restore_existing_value "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD_PROVIDED" "POSTGRES_PASSWORD" "$file"
+	restore_existing_value "NEXTAUTH_SECRET" "$NEXTAUTH_SECRET_PROVIDED" "NEXTAUTH_SECRET" "$file"
+	restore_existing_value "NEXTAUTH_URL" "$NEXTAUTH_URL_PROVIDED" "NEXTAUTH_URL" "$file"
+	restore_existing_value "AUTO_UPDATE" "$AUTO_UPDATE_PROVIDED" "AUTO_UPDATE" "$file"
+	restore_existing_value "AUTO_UPDATE_INTERVAL" "$AUTO_UPDATE_INTERVAL_PROVIDED" "AUTO_UPDATE_INTERVAL" "$file"
+	restore_existing_value "AUTO_UPDATE_CLEANUP" "$AUTO_UPDATE_CLEANUP_PROVIDED" "AUTO_UPDATE_CLEANUP" "$file"
 }
 
 probe_url() {
@@ -318,9 +392,9 @@ install_docker_if_needed() {
 
 compose_up() {
 	if docker compose version >/dev/null 2>&1; then
-		docker compose up -d --pull never
+		docker compose up -d --pull never --remove-orphans
 	elif command_exists docker-compose; then
-		docker-compose up -d
+		docker-compose up -d --remove-orphans
 	else
 		fail "Docker Compose is not available. Install the Docker Compose plugin."
 	fi
@@ -345,6 +419,9 @@ POSTGRES_PORT=5432
 NEXTAUTH_URL=${NEXTAUTH_URL}
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 NEXTAUTH_URL_INTERNAL=http://ztnet:3000
+AUTO_UPDATE=${AUTO_UPDATE}
+AUTO_UPDATE_INTERVAL=${AUTO_UPDATE_INTERVAL}
+AUTO_UPDATE_CLEANUP=${AUTO_UPDATE_CLEANUP}
 EOF
 	chmod 600 "${INSTALL_DIR}/.env"
 }
@@ -409,9 +486,42 @@ services:
       NEXTAUTH_URL_INTERNAL: \${NEXTAUTH_URL_INTERNAL}
     networks:
       - app-network
+EOF
+
+	if [ "$AUTO_UPDATE" = "true" ]; then
+		cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "${APP_NAME}"
+EOF
+	fi
+
+	cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
     depends_on:
       - postgres
       - zerotier
+EOF
+
+	if [ "$AUTO_UPDATE" = "true" ]; then
+		cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
+
+  updater:
+    image: ${UPDATER_IMAGE}
+    container_name: ${APP_NAME}-updater
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_SCOPE: "${APP_NAME}"
+      WATCHTOWER_POLL_INTERVAL: "${AUTO_UPDATE_INTERVAL}"
+      WATCHTOWER_CLEANUP: "${AUTO_UPDATE_CLEANUP}"
+    labels:
+      com.centurylinklabs.watchtower.scope: "${APP_NAME}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+EOF
+	fi
+
+	cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
 
 volumes:
   zerotier:
@@ -430,12 +540,17 @@ EOF
 main() {
 	require_root
 	check_host
+	load_existing_environment
+	validate_auto_update
 	install_docker_if_needed
 	configure_mirror
 
 	select_image "ZTNET_IMAGE" "$ZTNET_IMAGE" "$ZTNET_MIRROR_IMAGE" "ZTNET_MIRROR_IMAGE"
 	select_image "ZEROTIER_IMAGE" "$ZEROTIER_IMAGE" "$ZEROTIER_MIRROR_IMAGE" "ZEROTIER_MIRROR_IMAGE"
 	select_image "POSTGRES_IMAGE" "$POSTGRES_IMAGE" "$POSTGRES_MIRROR_IMAGE" "POSTGRES_MIRROR_IMAGE"
+	if [ "$AUTO_UPDATE" = "true" ]; then
+		select_image "UPDATER_IMAGE" "$UPDATER_IMAGE" "$UPDATER_MIRROR_IMAGE" "UPDATER_MIRROR_IMAGE"
+	fi
 
 	if [ ! -e /dev/net/tun ]; then
 		warn "/dev/net/tun was not found. ZeroTier may fail until TUN support is enabled on this host."
@@ -448,6 +563,11 @@ main() {
 	info "Using ZTNET image: ${ZTNET_IMAGE}"
 	info "Using ZeroTier image: ${ZEROTIER_IMAGE}"
 	info "Using PostgreSQL image: ${POSTGRES_IMAGE}"
+	if [ "$AUTO_UPDATE" = "true" ]; then
+		info "Automatic ZTNET updates enabled every ${AUTO_UPDATE_INTERVAL} seconds using ${UPDATER_IMAGE}"
+	else
+		info "Automatic ZTNET updates disabled."
+	fi
 	info "Writing deployment files to ${INSTALL_DIR}"
 
 	cd "$INSTALL_DIR"
@@ -456,6 +576,9 @@ main() {
 	info "ZTNET deployment started."
 	info "Open: ${NEXTAUTH_URL}"
 	info "View logs: cd ${INSTALL_DIR} && docker compose logs -f ztnet"
+	if [ "$AUTO_UPDATE" = "true" ]; then
+		info "Automatic update logs: cd ${INSTALL_DIR} && docker compose logs -f updater"
+	fi
 }
 
 if [ "${ZTNET_INSTALLER_SOURCE_ONLY:-0}" != "1" ]; then
