@@ -1,6 +1,6 @@
 <br />
 <p align="center">
-  <a href="https://github.com/sinamics/ztnet">
+  <a href="https://github.com/csbsgyl/ztnet-custom">
     <img src="docs/images/logo/ztnet_200x178.png" alt="Logo" width="80" height="60">
   </a>
 
@@ -8,11 +8,11 @@
     ZTNET - Self-Hosted ZeroTier network controller.
     <br />
     <br />
-    <a href="https://github.com/sinamics/ztnet/issues/new?assignees=&labels=bug&projects=&template=bug_template.yml&title=%5BBug%5D%3A+">Bug Report</a>
+    <a href="https://github.com/csbsgyl/ztnet-custom/issues/new?assignees=&labels=bug&projects=&template=bug_template.yml&title=%5BBug%5D%3A+">Bug Report</a>
     ·
-    <a href="https://github.com/sinamics/ztnet/issues/new?assignees=&labels=enhancement&projects=&template=feature_request.yml&title=%5BFeature+Request%5D%3A+">Feature Request</a>
+    <a href="https://github.com/csbsgyl/ztnet-custom/issues/new?assignees=&labels=enhancement&projects=&template=feature_request.yml&title=%5BFeature+Request%5D%3A+">Feature Request</a>
     ·
-    <a href="https://github.com/sinamics/ztnet/discussions/new/choose">Ask a Question</a>
+    <a href="https://github.com/csbsgyl/ztnet-custom/issues/new/choose">Ask a Question</a>
   </p>
   <h3 align="center">
     <a href="https://ztnet.network">Documentation</a>
@@ -23,9 +23,9 @@
   <div align="center">
 
 
-  [![GithubCI](https://github.com/sinamics/ztnet/actions/workflows/ci-tag.yml/badge.svg)](https://github.com/sinamics/ztnet/actions)
-  [![Release](https://img.shields.io/github/v/release/sinamics/ztnet.svg)](https://github.com/sinamics/ztnet/releases/latest)
-  [![Docker Pulls](https://img.shields.io/docker/pulls/sinamics/ztnet.svg)](https://hub.docker.com/r/sinamics/ztnet/)
+  [![Build GHCR image](https://github.com/csbsgyl/ztnet-custom/actions/workflows/ghcr-image.yml/badge.svg)](https://github.com/csbsgyl/ztnet-custom/actions/workflows/ghcr-image.yml)
+  [![Upstream Release](https://img.shields.io/github/v/release/sinamics/ztnet.svg)](https://github.com/sinamics/ztnet/releases/latest)
+  [![Upstream Docker Pulls](https://img.shields.io/docker/pulls/sinamics/ztnet.svg)](https://hub.docker.com/r/sinamics/ztnet/)
 
   </div>
 </p>
@@ -37,11 +37,15 @@ With a rich palette of features, and an intuitive user interface, ZTNET embodies
 
 ## Secondary Development Fork
 
-This repository is prepared as a secondary-development fork of [sinamics/ztnet](https://github.com/sinamics/ztnet). Keep upstream attribution and the GPL-3.0 license when publishing or distributing this fork.
+This repository is [csbsgyl/ztnet-custom](https://github.com/csbsgyl/ztnet-custom), a secondary-development fork of [sinamics/ztnet](https://github.com/sinamics/ztnet). Keep upstream attribution and the GPL-3.0 license when publishing or distributing this fork.
 
 - Secondary-development notes: [SECONDARY_DEVELOPMENT.md](SECONDARY_DEVELOPMENT.md)
 - One-click deployment: [deploy/README.md](deploy/README.md)
 - Deployment script: [deploy/one-click-install.sh](deploy/one-click-install.sh)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+```
 
 ### [See Installation Instruction](https://ztnet.network/installation/docker-compose)
 

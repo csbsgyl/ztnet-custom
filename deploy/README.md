@@ -12,29 +12,27 @@ Supported hosts: Linux `amd64` and `arm64`.
 
 ## Quick start
 
-After this fork is published to GitHub and its container image is available, use:
+Use the public image built from this fork:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<your-org>/<your-repo>/main/deploy/one-click-install.sh | sudo env ZTNET_IMAGE=ghcr.io/<your-org>/<your-repo>:latest bash
+curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
 ```
 
-For local validation with the upstream image:
+To deploy the unmodified upstream image with this installer instead:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<your-org>/<your-repo>/main/deploy/one-click-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env ZTNET_IMAGE=sinamics/ztnet:latest bash
 ```
-
-The default upstream image is `sinamics/ztnet:latest`. Set `ZTNET_IMAGE` to your fork image before announcing this command to users.
 
 ## Common options
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<your-org>/<your-repo>/main/deploy/one-click-install.sh | sudo env \
+curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env \
   APP_NAME=ztnet-custom \
   INSTALL_DIR=/opt/ztnet-custom \
   HTTP_PORT=3000 \
   NEXTAUTH_URL=http://your-server-ip:3000 \
-  ZTNET_IMAGE=ghcr.io/<your-org>/<your-repo>:latest \
+  ZTNET_IMAGE=ghcr.io/csbsgyl/ztnet-custom:latest \
   bash
 ```
 
@@ -47,7 +45,7 @@ Supported environment variables:
 | `HTTP_PORT` | `3000` | Host port exposed by the app. |
 | `NEXTAUTH_URL` | Auto-detected `http://<host>:<port>` | Public URL used by auth callbacks. Set this explicitly behind a domain or reverse proxy. |
 | `PUBLIC_HOST` | empty | Hostname/IP used only when auto-generating `NEXTAUTH_URL`. |
-| `ZTNET_IMAGE` | `sinamics/ztnet:latest` | App image. Use `ghcr.io/<your-org>/<your-repo>:latest` for the fork. |
+| `ZTNET_IMAGE` | `ghcr.io/csbsgyl/ztnet-custom:latest` | App image. Override this to deploy another build. |
 | `ZEROTIER_IMAGE` | `zyclonite/zerotier:1.14.2` | ZeroTier service image. |
 | `POSTGRES_IMAGE` | `postgres:15.2-alpine` | PostgreSQL image. |
 | `POSTGRES_PASSWORD` | random | Database password. |
