@@ -14,6 +14,17 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
 NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-}"
 NEXTAUTH_URL="${NEXTAUTH_URL:-}"
 INSTALL_DOCKER="${INSTALL_DOCKER:-auto}"
+DOCKER_MIRROR_MODE="${DOCKER_MIRROR_MODE:-auto}"
+DOCKER_MIRROR_URL="${DOCKER_MIRROR_URL:-https://docker.xiaohangyun.org}"
+DOCKER_PULL_TIMEOUT="${DOCKER_PULL_TIMEOUT:-300}"
+REGISTRY_PROBE_TIMEOUT="${REGISTRY_PROBE_TIMEOUT:-8}"
+ZTNET_MIRROR_IMAGE="${ZTNET_MIRROR_IMAGE:-}"
+ZEROTIER_MIRROR_IMAGE="${ZEROTIER_MIRROR_IMAGE:-}"
+POSTGRES_MIRROR_IMAGE="${POSTGRES_MIRROR_IMAGE:-}"
+
+MIRROR_REGISTRY=""
+MIRROR_API_URL=""
+MIRROR_AVAILABLE=0
 
 info() {
 	printf '\033[1;34m[INFO]\033[0m %s\n' "$*"
@@ -30,6 +41,205 @@ fail() {
 
 command_exists() {
 	command -v "$1" >/dev/null 2>&1
+}
+
+is_unsigned_integer() {
+	case "$1" in
+		"" | *[!0-9]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+probe_url() {
+	local status
+
+	command_exists curl || return 1
+	status="$(curl -sS -o /dev/null -w '%{http_code}' \
+		--connect-timeout "$REGISTRY_PROBE_TIMEOUT" \
+		--max-time "$REGISTRY_PROBE_TIMEOUT" \
+		"$1" 2>/dev/null || true)"
+
+	case "$status" in
+		200 | 401 | 403) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+normalize_mirror_url() {
+	local url="${DOCKER_MIRROR_URL%/}"
+
+	case "$url" in
+		https://*) ;;
+		*) fail "DOCKER_MIRROR_URL must be an HTTPS registry URL." ;;
+	esac
+
+	MIRROR_REGISTRY="${url#https://}"
+	case "$MIRROR_REGISTRY" in
+		"" | */*) fail "DOCKER_MIRROR_URL must not contain a path." ;;
+	esac
+	MIRROR_API_URL="${url}/v2/"
+}
+
+configure_mirror() {
+	case "$DOCKER_MIRROR_MODE" in
+		auto | always | never) ;;
+		*) fail "DOCKER_MIRROR_MODE must be auto, always, or never." ;;
+	esac
+
+	is_unsigned_integer "$DOCKER_PULL_TIMEOUT" || fail "DOCKER_PULL_TIMEOUT must be an unsigned integer."
+	is_unsigned_integer "$REGISTRY_PROBE_TIMEOUT" || fail "REGISTRY_PROBE_TIMEOUT must be an unsigned integer."
+	[ "$REGISTRY_PROBE_TIMEOUT" -gt 0 ] || fail "REGISTRY_PROBE_TIMEOUT must be greater than zero."
+
+	if [ "$DOCKER_MIRROR_MODE" = "never" ]; then
+		info "Docker registry mirror is disabled."
+		return
+	fi
+
+	normalize_mirror_url
+	if ! command_exists curl; then
+		warn "curl is unavailable, so mirror health cannot be probed. Pull fallback will still be attempted."
+		MIRROR_AVAILABLE=1
+		return
+	fi
+
+	if probe_url "$MIRROR_API_URL"; then
+		MIRROR_AVAILABLE=1
+		info "Docker registry mirror is available: ${DOCKER_MIRROR_URL}"
+	elif [ "$DOCKER_MIRROR_MODE" = "always" ]; then
+		MIRROR_AVAILABLE=1
+		warn "Mirror health probe failed, but always mode will still try it before the source registry."
+	else
+		warn "Docker registry mirror is unavailable. Source registries will be used."
+	fi
+}
+
+image_is_docker_hub() {
+	local image="$1"
+	local first
+
+	case "$image" in
+		docker.io/* | index.docker.io/* | registry-1.docker.io/*) return 0 ;;
+	esac
+
+	first="${image%%/*}"
+	if [ "$first" = "$image" ]; then
+		return 0
+	fi
+
+	case "$first" in
+		*.* | *:* | localhost) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+image_registry_url() {
+	local image="$1"
+	local registry
+
+	if image_is_docker_hub "$image"; then
+		printf 'https://registry-1.docker.io/v2/'
+		return
+	fi
+
+	registry="${image%%/*}"
+	printf 'https://%s/v2/' "$registry"
+}
+
+mirror_image_for() {
+	local image="$1"
+	local path
+
+	[ -n "$MIRROR_REGISTRY" ] || return 1
+	case "$image" in
+		"$MIRROR_REGISTRY"/*) return 1 ;;
+	esac
+
+	if ! image_is_docker_hub "$image"; then
+		return 1
+	fi
+
+	path="${image#docker.io/}"
+	path="${path#index.docker.io/}"
+	path="${path#registry-1.docker.io/}"
+	if [[ "$path" != */* ]]; then
+		path="library/${path}"
+	fi
+
+	printf '%s/%s' "$MIRROR_REGISTRY" "$path"
+}
+
+run_docker_pull() {
+	local image="$1"
+
+	info "Pulling image: ${image}"
+	if command_exists timeout && [ "$DOCKER_PULL_TIMEOUT" -gt 0 ]; then
+		timeout "$DOCKER_PULL_TIMEOUT" docker pull "$image"
+	else
+		docker pull "$image"
+	fi
+}
+
+select_image() {
+	local variable_name="$1"
+	local direct_image="$2"
+	local explicit_mirror="$3"
+	local fallback_name="$4"
+	local mirror_image=""
+	local registry_url
+	local direct_reachable=1
+	local preferred_image
+	local alternate_image
+
+	if [ "$DOCKER_MIRROR_MODE" != "never" ]; then
+		if [ -n "$explicit_mirror" ]; then
+			mirror_image="$explicit_mirror"
+		elif [ "$MIRROR_AVAILABLE" -eq 1 ]; then
+			mirror_image="$(mirror_image_for "$direct_image" || true)"
+		fi
+	fi
+
+	if [ "$mirror_image" = "$direct_image" ]; then
+		mirror_image=""
+	fi
+
+	if command_exists curl; then
+		registry_url="$(image_registry_url "$direct_image")"
+		if ! probe_url "$registry_url"; then
+			direct_reachable=0
+			warn "Source registry probe failed for ${direct_image}."
+		fi
+	fi
+
+	preferred_image="$direct_image"
+	alternate_image="$mirror_image"
+	if [ -n "$mirror_image" ] && { [ "$DOCKER_MIRROR_MODE" = "always" ] || [ "$direct_reachable" -eq 0 ]; }; then
+		preferred_image="$mirror_image"
+		alternate_image="$direct_image"
+	fi
+
+	if run_docker_pull "$preferred_image"; then
+		printf -v "$variable_name" '%s' "$preferred_image"
+		return
+	fi
+
+	warn "Image pull failed: ${preferred_image}"
+	if [ -n "$alternate_image" ] && run_docker_pull "$alternate_image"; then
+		printf -v "$variable_name" '%s' "$alternate_image"
+		return
+	fi
+
+	if docker image inspect "$preferred_image" >/dev/null 2>&1; then
+		warn "Using cached image after pull failure: ${preferred_image}"
+		printf -v "$variable_name" '%s' "$preferred_image"
+		return
+	fi
+	if [ -n "$alternate_image" ] && docker image inspect "$alternate_image" >/dev/null 2>&1; then
+		warn "Using cached image after pull failure: ${alternate_image}"
+		printf -v "$variable_name" '%s' "$alternate_image"
+		return
+	fi
+
+	fail "Unable to pull ${direct_image}. Set ${fallback_name} to a reachable registry copy or check registry connectivity."
 }
 
 require_root() {
@@ -106,11 +316,11 @@ install_docker_if_needed() {
 	curl -fsSL https://get.docker.com | sh
 }
 
-compose_cmd() {
+compose_up() {
 	if docker compose version >/dev/null 2>&1; then
-		docker compose "$@"
+		docker compose up -d --pull never
 	elif command_exists docker-compose; then
-		docker-compose "$@"
+		docker-compose up -d
 	else
 		fail "Docker Compose is not available. Install the Docker Compose plugin."
 	fi
@@ -221,6 +431,11 @@ main() {
 	require_root
 	check_host
 	install_docker_if_needed
+	configure_mirror
+
+	select_image "ZTNET_IMAGE" "$ZTNET_IMAGE" "$ZTNET_MIRROR_IMAGE" "ZTNET_MIRROR_IMAGE"
+	select_image "ZEROTIER_IMAGE" "$ZEROTIER_IMAGE" "$ZEROTIER_MIRROR_IMAGE" "ZEROTIER_MIRROR_IMAGE"
+	select_image "POSTGRES_IMAGE" "$POSTGRES_IMAGE" "$POSTGRES_MIRROR_IMAGE" "POSTGRES_MIRROR_IMAGE"
 
 	if [ ! -e /dev/net/tun ]; then
 		warn "/dev/net/tun was not found. ZeroTier may fail until TUN support is enabled on this host."
@@ -230,16 +445,19 @@ main() {
 	write_env_file
 	write_compose_file
 
-	info "Using image: ${ZTNET_IMAGE}"
+	info "Using ZTNET image: ${ZTNET_IMAGE}"
+	info "Using ZeroTier image: ${ZEROTIER_IMAGE}"
+	info "Using PostgreSQL image: ${POSTGRES_IMAGE}"
 	info "Writing deployment files to ${INSTALL_DIR}"
 
 	cd "$INSTALL_DIR"
-	compose_cmd pull
-	compose_cmd up -d
+	compose_up
 
 	info "ZTNET deployment started."
 	info "Open: ${NEXTAUTH_URL}"
 	info "View logs: cd ${INSTALL_DIR} && docker compose logs -f ztnet"
 }
 
-main "$@"
+if [ "${ZTNET_INSTALLER_SOURCE_ONLY:-0}" != "1" ]; then
+	main "$@"
+fi

@@ -32,5 +32,8 @@ jobs:
       - name: Check installer syntax
         run: bash -n deploy/one-click-install.sh
 
+      - name: Test installer mirror selection
+        run: bash deploy/tests/one-click-install-test.sh
+
       - name: Validate Docker Compose
         run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet

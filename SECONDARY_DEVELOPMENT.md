@@ -45,6 +45,8 @@ For an SSH remote:
 - `.github/workflows/ghcr-image.yml` is the only container publishing workflow and targets this repository's GHCR package.
 - Upstream workflows tied to the `ztnet.network` and `ztnet.installer` self-hosted runners are intentionally not carried forward.
 
+The one-click installer automatically detects registry connectivity and can fall back to `https://docker.xiaohangyun.org` for Docker Hub images. Because that mirror does not currently proxy the fork's GHCR path, use `ZTNET_MIRROR_IMAGE` when an exact copy is published to a domestic registry.
+
 ## Container image
 
 This fork includes a GHCR workflow at `.github/workflows/ghcr-image.yml`.
