@@ -38,6 +38,13 @@ For an SSH remote:
 .\scripts\prepare-github-fork.ps1 -Repository "csbsgyl/ztnet-custom" -RemoteUrl "git@github.com:csbsgyl/ztnet-custom.git"
 ```
 
+## Fork automation
+
+- `.github/workflows/main_build.yml` runs application linting, formatting checks, tests, and a production build without relying on upstream Docker Hub credentials.
+- `.github/workflows/deployment-check.yml` validates the installer syntax and rendered Docker Compose configuration.
+- `.github/workflows/ghcr-image.yml` is the only container publishing workflow and targets this repository's GHCR package.
+- Upstream workflows tied to the `ztnet.network` and `ztnet.installer` self-hosted runners are intentionally not carried forward.
+
 ## Container image
 
 This fork includes a GHCR workflow at `.github/workflows/ghcr-image.yml`.

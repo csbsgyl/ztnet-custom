@@ -1,0 +1,36 @@
+name: Validate deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "deploy/**"
+      - ".github/workflows/deployment-check.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "deploy/**"
+      - ".github/workflows/deployment-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check installer syntax
+        run: bash -n deploy/one-click-install.sh
+
+      - name: Validate Docker Compose
+        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet
