@@ -584,7 +584,7 @@ EOF
       WATCHTOWER_HTTP_API_UPDATE: "true"
       WATCHTOWER_HTTP_API_PERIODIC_POLLS: "true"
       WATCHTOWER_HTTP_API_METRICS: "true"
-      WATCHTOWER_HTTP_API_TOKEN: ${UPDATE_API_TOKEN}
+      WATCHTOWER_HTTP_API_TOKEN: \${UPDATE_API_TOKEN}
     labels:
       com.centurylinklabs.watchtower.scope: "${APP_NAME}"
     volumes:
