@@ -5,26 +5,6 @@ import * as ztController from "~/utils/ztApi";
 import { markOrderFulfilled } from "./service";
 import { applyPaidOrder } from "./orders";
 
-export function getBillingBaseUrl(): string {
-	const configured = process.env.NEXTAUTH_URL?.trim();
-	if (!configured) throw new Error("NEXTAUTH_URL is required for Alipay callbacks.");
-	const url = new URL(configured);
-	url.pathname = url.pathname.replace(/\/$/, "");
-	url.search = "";
-	url.hash = "";
-	return url.toString().replace(/\/$/, "");
-}
-
-export function getAlipayCallbackUrls(orderId?: string) {
-	const baseUrl = getBillingBaseUrl();
-	return {
-		notifyUrl: `${baseUrl}/api/billing/alipay/notify`,
-		returnUrl: orderId
-			? `${baseUrl}/billing/return?orderId=${encodeURIComponent(orderId)}`
-			: `${baseUrl}/billing/return`,
-	};
-}
-
 export async function updatePersonalNetworkMember(
 	prisma: PrismaClient,
 	{ userId, networkId, memberId, authorized }: ControllerUpdateInput,

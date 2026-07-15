@@ -84,6 +84,8 @@ model GlobalOptions {
   alipayPrivateKeyEncrypted          String? @db.Text
   alipayPublicKey                    String? @db.Text
   alipayFeeRateBps                   Int     @default(0)
+  alipayNotifyUrl                    String?
+  alipayReturnUrl                    String?
   // Notifications
   userRegistrationNotification       Boolean @default(false)
   // Welcome message

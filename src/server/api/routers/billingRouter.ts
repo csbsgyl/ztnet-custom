@@ -2,13 +2,12 @@ import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { buildPagePayUrl } from "~/server/billing/alipay";
-import { getAlipayRuntimeConfig } from "~/server/billing/config";
+import { getAlipayCallbackUrls, getAlipayRuntimeConfig } from "~/server/billing/config";
 import {
 	getEffectiveEntitlement,
 	type EntitlementPrisma,
 } from "~/server/billing/entitlements";
 import { createPendingOrder } from "~/server/billing/orders";
-import { getAlipayCallbackUrls } from "~/server/billing/runtime";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 function planResult(plan: {
@@ -71,7 +70,7 @@ async function paymentUrlForOrder(
 ) {
 	const options = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
 	const config = getAlipayRuntimeConfig(options);
-	const callbacks = getAlipayCallbackUrls(order.id);
+	const callbacks = getAlipayCallbackUrls(options, order.id);
 	return buildPagePayUrl({
 		appId: config.appId,
 		privateKey: config.privateKey,

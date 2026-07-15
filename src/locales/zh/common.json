@@ -639,7 +639,8 @@
 				"plan": "请完整填写套餐信息并使用有效数值。",
 				"renewal": "请选择用户和套餐，并填写有效的续费信息。",
 				"alipay": "启用支付前请完整填写支付宝必要凭据。",
-				"alipayFee": "手续费请输入 0 到 100，最多保留两位小数。"
+				"alipayFee": "手续费请输入 0 到 100，最多保留两位小数。",
+				"alipayCallbacks": "请输入有效的 HTTP/HTTPS 回调地址；启用支付时两项都不能为空。"
 			},
 			"metrics": {
 				"activeSubscriptions": "生效订阅",
@@ -747,7 +748,9 @@
 				"sandbox": "使用支付宝沙箱",
 				"sandboxDescription": "仅在使用支付宝沙箱凭据和测试交易时启用。",
 				"notifyUrl": "异步通知地址",
+				"notifyUrlHelp": "支付宝会向此地址发送支付结果通知，请填写反代域名对应的完整地址。",
 				"returnUrl": "浏览器返回地址",
+				"returnUrlHelp": "支付完成后用户会返回此地址，系统会自动追加订单 ID。",
 				"save": "保存支付宝配置"
 			}
 		}

@@ -276,6 +276,12 @@ describe("Billing administration page", () => {
 		const privateKeyInput = screen.getByLabelText(/Merchant application private key/);
 		expect(publicKeyInput).toHaveValue("");
 		expect(privateKeyInput).toHaveValue("");
+		expect(screen.getByLabelText("Asynchronous notification URL")).toHaveValue(
+			"https://ztnet.example/api/billing/alipay/notify",
+		);
+		expect(screen.getByLabelText("Browser return URL")).toHaveValue(
+			"https://ztnet.example/billing/return",
+		);
 		expect(screen.queryByDisplayValue("SERVER_PUBLIC_KEY_MUST_NOT_RENDER")).toBeNull();
 		expect(screen.queryByDisplayValue("SERVER_SECRET_MUST_NOT_RENDER")).toBeNull();
 		expect(screen.getAllByText("Configured")).toHaveLength(2);
@@ -286,6 +292,8 @@ describe("Billing administration page", () => {
 			appId: "2026000000001",
 			gateway: "https://openapi.alipay.com/gateway.do",
 			feeRateBps: 60,
+			notifyUrl: "https://ztnet.example/api/billing/alipay/notify",
+			returnUrl: "https://ztnet.example/billing/return",
 		});
 		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("sellerId");
 		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("alipayPublicKey");

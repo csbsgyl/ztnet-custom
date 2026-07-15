@@ -7,10 +7,11 @@ import {
 	encryptAlipayPrivateKey,
 	getAlipayRuntimeConfig,
 	getPublicAlipayConfig,
+	isValidAlipayCallbackUrl,
 } from "~/server/billing/config";
 import { createPendingOrder } from "~/server/billing/orders";
 import { queryAndReconcileAlipayOrder } from "~/server/billing/payment";
-import { fulfilPaidOrder, getAlipayCallbackUrls } from "~/server/billing/runtime";
+import { fulfilPaidOrder } from "~/server/billing/runtime";
 import { adminRoleProtectedRoute, createTRPCRouter } from "~/server/api/trpc";
 
 const planInput = z.object({
@@ -31,6 +32,20 @@ const alipayConfigInput = z.object({
 	alipayPublicKey: z.string().trim().max(16_384).optional(),
 	privateKey: z.string().trim().max(16_384).optional(),
 	feeRateBps: z.number().int().min(0).max(10_000),
+	notifyUrl: z
+		.string()
+		.trim()
+		.max(2_048)
+		.refine((value) => !value || isValidAlipayCallbackUrl(value), {
+			message: "The asynchronous notification URL must use HTTP or HTTPS.",
+		}),
+	returnUrl: z
+		.string()
+		.trim()
+		.max(2_048)
+		.refine((value) => !value || isValidAlipayCallbackUrl(value), {
+			message: "The browser return URL must use HTTP or HTTPS.",
+		}),
 });
 
 export const billingAdminRouter = createTRPCRouter({
@@ -310,12 +325,7 @@ export const billingAdminRouter = createTRPCRouter({
 
 	getAlipayConfig: adminRoleProtectedRoute.query(async ({ ctx }) => {
 		const options = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
-		const callbacks = getAlipayCallbackUrls();
-		return {
-			...getPublicAlipayConfig(options),
-			notifyUrl: callbacks.notifyUrl,
-			returnUrl: callbacks.returnUrl,
-		};
+		return getPublicAlipayConfig(options);
 	}),
 
 	saveAlipayConfig: adminRoleProtectedRoute
@@ -324,7 +334,25 @@ export const billingAdminRouter = createTRPCRouter({
 			const current = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
 			const newPublicKey = input.alipayPublicKey || undefined;
 			const newPrivateKey = input.privateKey || undefined;
+			const notifyUrl = input.notifyUrl || current?.alipayNotifyUrl || null;
+			const returnUrl = input.returnUrl || current?.alipayReturnUrl || null;
 			if (input.enabled) {
+				if (!notifyUrl || !returnUrl) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message:
+							"Both Alipay callback URLs are required before payments can be enabled.",
+					});
+				}
+				if (
+					!isValidAlipayCallbackUrl(notifyUrl) ||
+					!isValidAlipayCallbackUrl(returnUrl)
+				) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: "Both Alipay callback URLs must be valid HTTP or HTTPS URLs.",
+					});
+				}
 				if (!input.appId || (!newPublicKey && !current?.alipayPublicKey)) {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
@@ -384,6 +412,8 @@ export const billingAdminRouter = createTRPCRouter({
 							alipayPrivateKeyEncrypted:
 								encryptedPrivateKey ?? current?.alipayPrivateKeyEncrypted ?? null,
 							alipayFeeRateBps: input.feeRateBps,
+							alipayNotifyUrl: notifyUrl,
+							alipayReturnUrl: returnUrl,
 						},
 						update: {
 							alipayEnabled: input.enabled,
@@ -391,6 +421,8 @@ export const billingAdminRouter = createTRPCRouter({
 							alipaySellerId: null,
 							alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
 							alipayFeeRateBps: input.feeRateBps,
+							alipayNotifyUrl: notifyUrl,
+							alipayReturnUrl: returnUrl,
 							...(newPublicKey ? { alipayPublicKey: newPublicKey } : {}),
 							...(encryptedPrivateKey
 								? { alipayPrivateKeyEncrypted: encryptedPrivateKey }

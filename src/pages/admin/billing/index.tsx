@@ -59,6 +59,8 @@ type AlipayDraft = {
 	alipayPublicKey: string;
 	privateKey: string;
 	feeRatePercent: string;
+	notifyUrl: string;
+	returnUrl: string;
 };
 
 const ALIPAY_PRODUCTION_GATEWAY = "https://openapi.alipay.com/gateway.do";
@@ -89,7 +91,23 @@ const EMPTY_ALIPAY: AlipayDraft = {
 	alipayPublicKey: "",
 	privateKey: "",
 	feeRatePercent: "0",
+	notifyUrl: "",
+	returnUrl: "",
 };
+
+function isHttpUrl(value: string): boolean {
+	try {
+		const url = new URL(value);
+		return (
+			(url.protocol === "http:" || url.protocol === "https:") &&
+			!url.username &&
+			!url.password &&
+			!url.hash
+		);
+	} catch {
+		return false;
+	}
+}
 
 const AdminBilling = () => {
 	const t = useTranslations("billing.admin");
@@ -199,6 +217,8 @@ const AdminBilling = () => {
 			alipayPublicKey: "",
 			privateKey: "",
 			feeRatePercent: String(alipayConfig.data.feeRateBps / 100),
+			notifyUrl: alipayConfig.data.notifyUrl,
+			returnUrl: alipayConfig.data.returnUrl,
 		});
 	}, [alipayConfig.data]);
 
@@ -354,6 +374,16 @@ const AdminBilling = () => {
 			return;
 		}
 		const feeRateBps = Math.round(Number(feeRateText) * 100);
+		const notifyUrl = alipayDraft.notifyUrl.trim();
+		const returnUrl = alipayDraft.returnUrl.trim();
+		if (
+			(notifyUrl && !isHttpUrl(notifyUrl)) ||
+			(returnUrl && !isHttpUrl(returnUrl)) ||
+			(alipayDraft.enabled && (!notifyUrl || !returnUrl))
+		) {
+			toast.error(t("validation.alipayCallbacks"));
+			return;
+		}
 		if (
 			alipayDraft.enabled &&
 			(!alipayDraft.appId.trim() ||
@@ -369,6 +399,8 @@ const AdminBilling = () => {
 			appId: alipayDraft.appId.trim(),
 			gateway: alipayDraft.gateway,
 			feeRateBps,
+			notifyUrl,
+			returnUrl,
 		};
 		const alipayPublicKey = alipayDraft.alipayPublicKey.trim();
 		const privateKey = alipayDraft.privateKey.trim();
@@ -1295,16 +1327,48 @@ const AdminBilling = () => {
 									</span>
 								</span>
 							</label>
-							<dl className="grid gap-3 text-sm md:grid-cols-[12rem_1fr]">
-								<dt className="text-base-content/60">{t("alipay.notifyUrl")}</dt>
-								<dd className="break-all font-mono text-xs">
-									{alipayConfig.data.notifyUrl}
-								</dd>
-								<dt className="text-base-content/60">{t("alipay.returnUrl")}</dt>
-								<dd className="break-all font-mono text-xs">
-									{alipayConfig.data.returnUrl}
-								</dd>
-							</dl>
+							<div className="grid gap-4">
+								<label className="form-control w-full">
+									<span className="label-text mb-2">{t("alipay.notifyUrl")}</span>
+									<input
+										type="url"
+										aria-label={t("alipay.notifyUrl")}
+										className="input input-bordered w-full font-mono text-sm"
+										value={alipayDraft.notifyUrl}
+										onChange={(event) =>
+											setAlipayDraft((current) => ({
+												...current,
+												notifyUrl: event.target.value,
+											}))
+										}
+										placeholder="https://example.com/api/billing/alipay/notify"
+										spellCheck={false}
+									/>
+									<span className="mt-2 text-xs text-base-content/60">
+										{t("alipay.notifyUrlHelp")}
+									</span>
+								</label>
+								<label className="form-control w-full">
+									<span className="label-text mb-2">{t("alipay.returnUrl")}</span>
+									<input
+										type="url"
+										aria-label={t("alipay.returnUrl")}
+										className="input input-bordered w-full font-mono text-sm"
+										value={alipayDraft.returnUrl}
+										onChange={(event) =>
+											setAlipayDraft((current) => ({
+												...current,
+												returnUrl: event.target.value,
+											}))
+										}
+										placeholder="https://example.com/billing/return"
+										spellCheck={false}
+									/>
+									<span className="mt-2 text-xs text-base-content/60">
+										{t("alipay.returnUrlHelp")}
+									</span>
+								</label>
+							</div>
 							<div className="flex justify-end">
 								<button
 									type="submit"

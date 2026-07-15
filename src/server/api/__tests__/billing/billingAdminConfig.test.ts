@@ -25,6 +25,8 @@ function createHarness(current: Record<string, unknown> | null = null) {
 		alipayPrivateKeyEncrypted: null,
 		alipayPublicKey: null,
 		alipayFeeRateBps: 0,
+		alipayNotifyUrl: null,
+		alipayReturnUrl: null,
 		...current,
 		...update,
 	}));
@@ -70,6 +72,8 @@ test("saves the three Alipay credentials and fee without requiring a seller ID",
 		alipayPublicKey: credentials.alipayPublicKey,
 		privateKey: credentials.privateKey,
 		feeRateBps: 60,
+		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+		returnUrl: "https://billing.example.test/billing/return",
 	});
 
 	expect(harness.upsert).toHaveBeenCalledWith(
@@ -80,6 +84,8 @@ test("saves the three Alipay credentials and fee without requiring a seller ID",
 				alipayFeeRateBps: 60,
 				alipayPublicKey: credentials.alipayPublicKey,
 				alipayPrivateKeyEncrypted: expect.stringMatching(/^v1:/),
+				alipayNotifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+				alipayReturnUrl: "https://billing.example.test/billing/return",
 			}),
 		}),
 	);
@@ -90,6 +96,8 @@ test("saves the three Alipay credentials and fee without requiring a seller ID",
 	expect(result).toMatchObject({
 		enabled: true,
 		feeRateBps: 60,
+		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+		returnUrl: "https://billing.example.test/billing/return",
 		hasPublicKey: true,
 		hasPrivateKey: true,
 	});
@@ -110,6 +118,8 @@ test("keeps both stored Alipay keys when the key fields are left empty", async (
 		appId: "2026071500000001",
 		gateway: "https://openapi.alipay.com/gateway.do",
 		feeRateBps: 60,
+		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+		returnUrl: "https://billing.example.test/billing/return",
 	});
 
 	const update = harness.upsert.mock.calls[0]?.[0].update;
@@ -130,6 +140,8 @@ test("reports which Alipay key has an invalid format", async () => {
 			gateway: "https://openapi.alipay.com/gateway.do",
 			alipayPublicKey: "not-a-public-key",
 			feeRateBps: 0,
+			notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+			returnUrl: "https://billing.example.test/billing/return",
 		}),
 	).rejects.toThrow("Alipay public key format is invalid");
 
@@ -141,8 +153,97 @@ test("reports which Alipay key has an invalid format", async () => {
 			alipayPublicKey: credentials.alipayPublicKey,
 			privateKey: "not-a-private-key",
 			feeRateBps: 0,
+			notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+			returnUrl: "https://billing.example.test/billing/return",
 		}),
 	).rejects.toThrow("merchant application private key format is invalid");
 
 	expect(harness.upsert).not.toHaveBeenCalled();
+});
+
+test("requires manually configured callback URLs before enabling Alipay", async () => {
+	const harness = createHarness({
+		alipayAppId: "2026071500000001",
+		alipayPublicKey: "stored-public-key",
+		alipayPrivateKeyEncrypted: "v1:stored-private-key",
+	});
+
+	await expect(
+		harness.caller.saveAlipayConfig({
+			enabled: true,
+			appId: "2026071500000001",
+			gateway: "https://openapi.alipay.com/gateway.do",
+			feeRateBps: 0,
+			notifyUrl: "",
+			returnUrl: "",
+		}),
+	).rejects.toThrow("Both Alipay callback URLs are required");
+	expect(harness.upsert).not.toHaveBeenCalled();
+});
+
+test("keeps callback URLs when payments are disabled without replacement values", async () => {
+	const harness = createHarness({
+		alipayEnabled: true,
+		alipayAppId: "2026071500000001",
+		alipayPublicKey: "stored-public-key",
+		alipayPrivateKeyEncrypted: "v1:stored-private-key",
+		alipayNotifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+		alipayReturnUrl: "https://billing.example.test/billing/return",
+	});
+
+	const result = await harness.caller.saveAlipayConfig({
+		enabled: false,
+		appId: "2026071500000001",
+		gateway: "https://openapi.alipay.com/gateway.do",
+		feeRateBps: 0,
+		notifyUrl: "",
+		returnUrl: "",
+	});
+
+	expect(harness.upsert.mock.calls[0]?.[0].update).toMatchObject({
+		alipayEnabled: false,
+		alipayNotifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+		alipayReturnUrl: "https://billing.example.test/billing/return",
+	});
+	expect(result).toMatchObject({
+		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
+		returnUrl: "https://billing.example.test/billing/return",
+	});
+});
+
+test("does not enable Alipay with invalid callback URLs already stored in the database", async () => {
+	const harness = createHarness({
+		alipayAppId: "2026071500000001",
+		alipayPublicKey: "stored-public-key",
+		alipayPrivateKeyEncrypted: "v1:stored-private-key",
+		alipayNotifyUrl: "https://user:password@billing.example.test/notify",
+		alipayReturnUrl: "https://billing.example.test/billing/return#fragment",
+	});
+
+	await expect(
+		harness.caller.saveAlipayConfig({
+			enabled: true,
+			appId: "2026071500000001",
+			gateway: "https://openapi.alipay.com/gateway.do",
+			feeRateBps: 0,
+			notifyUrl: "",
+			returnUrl: "",
+		}),
+	).rejects.toThrow("Both Alipay callback URLs must be valid");
+	expect(harness.upsert).not.toHaveBeenCalled();
+});
+
+test("returns empty callback fields instead of deriving them from the server URL", async () => {
+	const harness = createHarness();
+	const originalNextAuthUrl = process.env.NEXTAUTH_URL;
+	process.env.NEXTAUTH_URL = "https://must-not-be-used.example.test";
+
+	try {
+		await expect(harness.caller.getAlipayConfig()).resolves.toMatchObject({
+			notifyUrl: "",
+			returnUrl: "",
+		});
+	} finally {
+		process.env.NEXTAUTH_URL = originalNextAuthUrl;
+	}
 });

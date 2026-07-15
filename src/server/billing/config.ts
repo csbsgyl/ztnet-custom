@@ -19,6 +19,11 @@ type AlipayOptionFields = Pick<
 	| "alipayFeeRateBps"
 >;
 
+type AlipayCallbackOptionFields = Pick<
+	GlobalOptions,
+	"alipayNotifyUrl" | "alipayReturnUrl"
+>;
+
 export type AlipayRuntimeConfig = {
 	appId: string;
 	sellerId: string | null;
@@ -57,6 +62,47 @@ export function getAlipayRuntimeConfig(
 	};
 }
 
+function parseAlipayCallbackUrl(value: string | null | undefined): URL {
+	if (!value) throw new Error("Alipay callback URLs are not configured.");
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error("Alipay callback URLs must be complete HTTP or HTTPS URLs.");
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error("Alipay callback URLs must be complete HTTP or HTTPS URLs.");
+	}
+	if (url.username || url.password || url.hash) {
+		throw new Error("Alipay callback URLs must not contain credentials or a fragment.");
+	}
+	return url;
+}
+
+export function isValidAlipayCallbackUrl(value: string): boolean {
+	try {
+		parseAlipayCallbackUrl(value);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function getAlipayCallbackUrls(
+	options: AlipayCallbackOptionFields | null,
+	orderId: string,
+) {
+	const notifyUrl = options?.alipayNotifyUrl?.trim() ?? "";
+	const returnUrl = options?.alipayReturnUrl?.trim() ?? "";
+	parseAlipayCallbackUrl(notifyUrl);
+	const browserReturnUrl = parseAlipayCallbackUrl(returnUrl);
+	browserReturnUrl.searchParams.set("orderId", orderId);
+	return {
+		notifyUrl,
+		returnUrl: browserReturnUrl.toString(),
+	};
+}
+
 export function encryptAlipayPrivateKey(privateKey: string): string {
 	const iv = randomBytes(12);
 	const cipher = createCipheriv(
@@ -88,7 +134,9 @@ export function decryptAlipayPrivateKey(value: string): string {
 	]).toString("utf8");
 }
 
-export function getPublicAlipayConfig(options: AlipayOptionFields | null) {
+export function getPublicAlipayConfig(
+	options: (AlipayOptionFields & AlipayCallbackOptionFields) | null,
+) {
 	return {
 		enabled: options?.alipayEnabled ?? false,
 		appId: options?.alipayAppId ?? "",
@@ -96,5 +144,7 @@ export function getPublicAlipayConfig(options: AlipayOptionFields | null) {
 		feeRateBps: options?.alipayFeeRateBps ?? 0,
 		hasPublicKey: Boolean(options?.alipayPublicKey),
 		hasPrivateKey: Boolean(options?.alipayPrivateKeyEncrypted),
+		notifyUrl: options?.alipayNotifyUrl ?? "",
+		returnUrl: options?.alipayReturnUrl ?? "",
 	};
 }
