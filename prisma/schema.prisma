@@ -331,7 +331,7 @@ model BillingOrder {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
-  user         User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan         BillingPlan?         @relation(fields: [planId], references: [id], onDelete: Restrict)
   transactions PaymentTransaction[]
   events       PaymentEvent[]
@@ -369,7 +369,7 @@ model PaymentEvent {
   processingError String?   @db.Text
   createdAt       DateTime  @default(now())
 
-  order BillingOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  order BillingOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@index([processedAt, createdAt])
@@ -590,7 +590,7 @@ model Webhook {
   organizationId String? // Foreign key
   createdAt      DateTime      @default(now())
   // Relationship with User
-  User           User?         @relation(fields: [userId], references: [id])
+  User           User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId         String?
 }
 

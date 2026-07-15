@@ -12,7 +12,6 @@ import type { WorldConfig } from "~/types/worldConfig";
 import axios from "axios";
 import { updateLocalConf } from "~/utils/planet";
 import jwt from "jsonwebtoken";
-import { networkRouter } from "./networkRouter";
 import { decrypt, encrypt, generateInstanceSecret } from "~/utils/encryption";
 import { SMTP_SECRET } from "~/utils/encryption";
 import { ZT_FOLDER } from "~/utils/ztApi";
@@ -142,6 +141,9 @@ export const adminRouter = createTRPCRouter({
 					id: input.id,
 				},
 			});
+			if (!user) {
+				throwError("User not found", "NOT_FOUND");
+			}
 
 			if (user.role === "ADMIN") {
 				throwError("You can't delete admin users");
@@ -154,17 +156,37 @@ export const adminRouter = createTRPCRouter({
 				},
 			});
 
-			// delete user networks
-			const caller = networkRouter.createCaller(ctx);
+			// Controller credentials belong to the target user, not the administrator.
+			const targetUserContext = {
+				prisma: ctx.prisma,
+				session: { ...ctx.session, user },
+			};
 			for (const network of userNetworks) {
-				caller.deleteNetwork({ nwid: network.nwid, central: false });
+				const members = await ztController.network_members(
+					targetUserContext,
+					network.nwid,
+					false,
+				);
+				for (const memberId in members) {
+					await ztController.member_update({
+						ctx: targetUserContext,
+						nwid: network.nwid,
+						memberId,
+						central: false,
+						updateParams: { authorized: false },
+					});
+				}
+				await ztController.network_delete(targetUserContext, network.nwid, false);
 			}
 
-			return await ctx.prisma.user.delete({
-				where: {
-					id: input.id,
-				},
+			const deletedUser = await ctx.prisma.$transaction(async (transaction) => {
+				await transaction.verification.deleteMany({
+					where: { identifier: { in: [user.id, user.email] } },
+				});
+				return transaction.user.delete({ where: { id: input.id } });
 			});
+			disconnectUserSockets(input.id);
+			return deletedUser;
 		}),
 	createUser: adminRoleProtectedRoute
 		.input(
