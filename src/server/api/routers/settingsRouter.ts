@@ -3,10 +3,11 @@ import type { GlobalOptions } from "@prisma/client";
 
 type SettingsOptionsResponse = Omit<
 	GlobalOptions,
-	"smtpPassword" | "alipayPrivateKeyEncrypted"
+	"smtpPassword" | "alipayPrivateKeyEncrypted" | "alipayPublicKey"
 > & {
 	smtpPassword: null;
 	hasSmtpPassword: boolean;
+	hasAlipayPublicKey: boolean;
 	hasAlipayPrivateKey: boolean;
 };
 
@@ -21,11 +22,17 @@ export const settingsRouter = createTRPCRouter({
 			});
 			// Never send actual password to client - only indicate if one exists
 			if (options) {
-				const { smtpPassword, alipayPrivateKeyEncrypted, ...publicOptions } = options;
+				const {
+					smtpPassword,
+					alipayPrivateKeyEncrypted,
+					alipayPublicKey,
+					...publicOptions
+				} = options;
 				return {
 					...publicOptions,
 					smtpPassword: null,
 					hasSmtpPassword: Boolean(smtpPassword),
+					hasAlipayPublicKey: Boolean(alipayPublicKey),
 					hasAlipayPrivateKey: Boolean(alipayPrivateKeyEncrypted),
 				};
 			}

@@ -93,8 +93,8 @@ export function getPublicAlipayConfig(options: AlipayOptionFields | null) {
 		enabled: options?.alipayEnabled ?? false,
 		appId: options?.alipayAppId ?? "",
 		gateway: options?.alipayGateway || DEFAULT_ALIPAY_GATEWAY,
-		alipayPublicKey: options?.alipayPublicKey ?? "",
 		feeRateBps: options?.alipayFeeRateBps ?? 0,
+		hasPublicKey: Boolean(options?.alipayPublicKey),
 		hasPrivateKey: Boolean(options?.alipayPrivateKeyEncrypted),
 	};
 }

@@ -6,11 +6,12 @@ const session = {
 	user: { id: "user-1", role: "USER" },
 } as Session;
 
-test("global settings never expose the encrypted Alipay private key", async () => {
+test("global settings expose only Alipay key configuration states", async () => {
 	const options = {
 		id: 1,
 		siteName: "ZTNET",
 		smtpPassword: "encrypted-smtp",
+		alipayPublicKey: "stored-alipay-public-key",
 		alipayPrivateKeyEncrypted: "v1:secret-ciphertext",
 	};
 	const caller = settingsRouter.createCaller({
@@ -37,7 +38,9 @@ test("global settings never expose the encrypted Alipay private key", async () =
 		siteName: "ZTNET",
 		smtpPassword: null,
 		hasSmtpPassword: true,
+		hasAlipayPublicKey: true,
 		hasAlipayPrivateKey: true,
 	});
+	expect(result).not.toHaveProperty("alipayPublicKey");
 	expect(result).not.toHaveProperty("alipayPrivateKeyEncrypted");
 });

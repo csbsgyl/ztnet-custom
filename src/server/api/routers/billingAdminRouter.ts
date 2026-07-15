@@ -28,7 +28,7 @@ const alipayConfigInput = z.object({
 	enabled: z.boolean(),
 	appId: z.string().trim().max(64),
 	gateway: z.enum(ALIPAY_GATEWAYS),
-	alipayPublicKey: z.string().trim().max(16_384),
+	alipayPublicKey: z.string().trim().max(16_384).optional(),
 	privateKey: z.string().trim().max(16_384).optional(),
 	feeRateBps: z.number().int().min(0).max(10_000),
 });
@@ -322,23 +322,25 @@ export const billingAdminRouter = createTRPCRouter({
 		.input(alipayConfigInput)
 		.mutation(async ({ ctx, input }) => {
 			const current = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
+			const newPublicKey = input.alipayPublicKey || undefined;
+			const newPrivateKey = input.privateKey || undefined;
 			if (input.enabled) {
-				if (!input.appId || !input.alipayPublicKey) {
+				if (!input.appId || (!newPublicKey && !current?.alipayPublicKey)) {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
 						message: "App ID and Alipay public key are required.",
 					});
 				}
-				if (!input.privateKey && !current?.alipayPrivateKeyEncrypted) {
+				if (!newPrivateKey && !current?.alipayPrivateKeyEncrypted) {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
 						message: "Alipay merchant private key is required.",
 					});
 				}
 			}
-			if (input.alipayPublicKey) {
+			if (newPublicKey) {
 				try {
-					verifyContentSignature("ztnet-key-check", "AA==", input.alipayPublicKey);
+					verifyContentSignature("ztnet-key-check", "AA==", newPublicKey);
 				} catch {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
@@ -347,9 +349,9 @@ export const billingAdminRouter = createTRPCRouter({
 					});
 				}
 			}
-			if (input.privateKey) {
+			if (newPrivateKey) {
 				try {
-					signContent("ztnet-key-check", input.privateKey);
+					signContent("ztnet-key-check", newPrivateKey);
 				} catch {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
@@ -359,8 +361,8 @@ export const billingAdminRouter = createTRPCRouter({
 			}
 			let encryptedPrivateKey: string | undefined;
 			try {
-				encryptedPrivateKey = input.privateKey
-					? encryptAlipayPrivateKey(input.privateKey)
+				encryptedPrivateKey = newPrivateKey
+					? encryptAlipayPrivateKey(newPrivateKey)
 					: undefined;
 			} catch {
 				throw new TRPCError({
@@ -378,8 +380,9 @@ export const billingAdminRouter = createTRPCRouter({
 							alipayAppId: input.appId || null,
 							alipaySellerId: null,
 							alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
-							alipayPublicKey: input.alipayPublicKey || null,
-							alipayPrivateKeyEncrypted: encryptedPrivateKey ?? null,
+							alipayPublicKey: newPublicKey ?? current?.alipayPublicKey ?? null,
+							alipayPrivateKeyEncrypted:
+								encryptedPrivateKey ?? current?.alipayPrivateKeyEncrypted ?? null,
 							alipayFeeRateBps: input.feeRateBps,
 						},
 						update: {
@@ -387,8 +390,8 @@ export const billingAdminRouter = createTRPCRouter({
 							alipayAppId: input.appId || null,
 							alipaySellerId: null,
 							alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
-							alipayPublicKey: input.alipayPublicKey || null,
 							alipayFeeRateBps: input.feeRateBps,
+							...(newPublicKey ? { alipayPublicKey: newPublicKey } : {}),
 							...(encryptedPrivateKey
 								? { alipayPrivateKeyEncrypted: encryptedPrivateKey }
 								: {}),

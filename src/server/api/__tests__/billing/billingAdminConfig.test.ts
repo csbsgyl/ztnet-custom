@@ -25,6 +25,7 @@ function createHarness(current: Record<string, unknown> | null = null) {
 		alipayPrivateKeyEncrypted: null,
 		alipayPublicKey: null,
 		alipayFeeRateBps: 0,
+		...current,
 		...update,
 	}));
 	const activityCreate = jest.fn(async () => ({}));
@@ -77,6 +78,7 @@ test("saves the three Alipay credentials and fee without requiring a seller ID",
 				alipayEnabled: true,
 				alipayAppId: "2026071500000001",
 				alipayFeeRateBps: 60,
+				alipayPublicKey: credentials.alipayPublicKey,
 				alipayPrivateKeyEncrypted: expect.stringMatching(/^v1:/),
 			}),
 		}),
@@ -85,8 +87,36 @@ test("saves the three Alipay credentials and fee without requiring a seller ID",
 		alipaySellerId: null,
 	});
 	expect(harness.activityCreate).toHaveBeenCalledTimes(1);
-	expect(result).toMatchObject({ enabled: true, feeRateBps: 60, hasPrivateKey: true });
+	expect(result).toMatchObject({
+		enabled: true,
+		feeRateBps: 60,
+		hasPublicKey: true,
+		hasPrivateKey: true,
+	});
+	expect(result).not.toHaveProperty("alipayPublicKey");
 	expect(result).not.toHaveProperty("alipayPrivateKeyEncrypted");
+});
+
+test("keeps both stored Alipay keys when the key fields are left empty", async () => {
+	const harness = createHarness({
+		alipayEnabled: true,
+		alipayAppId: "2026071500000001",
+		alipayPublicKey: "stored-public-key",
+		alipayPrivateKeyEncrypted: "v1:stored-private-key",
+	});
+
+	const result = await harness.caller.saveAlipayConfig({
+		enabled: true,
+		appId: "2026071500000001",
+		gateway: "https://openapi.alipay.com/gateway.do",
+		feeRateBps: 60,
+	});
+
+	const update = harness.upsert.mock.calls[0]?.[0].update;
+	expect(update).not.toHaveProperty("alipayPublicKey");
+	expect(update).not.toHaveProperty("alipayPrivateKeyEncrypted");
+	expect(result).toMatchObject({ hasPublicKey: true, hasPrivateKey: true });
+	expect(result).not.toHaveProperty("alipayPublicKey");
 });
 
 test("reports which Alipay key has an invalid format", async () => {

@@ -176,7 +176,11 @@ const AdminBilling = () => {
 	const saveAlipayMutation = billingAdminApi.saveAlipayConfig.useMutation({
 		onSuccess: () => {
 			toast.success(t("messages.alipaySaved"));
-			setAlipayDraft((current) => ({ ...current, privateKey: "" }));
+			setAlipayDraft((current) => ({
+				...current,
+				alipayPublicKey: "",
+				privateKey: "",
+			}));
 			void alipayConfig.refetch();
 		},
 		onError: showError,
@@ -192,7 +196,7 @@ const AdminBilling = () => {
 			enabled: alipayConfig.data.enabled,
 			appId: alipayConfig.data.appId,
 			gateway,
-			alipayPublicKey: alipayConfig.data.alipayPublicKey,
+			alipayPublicKey: "",
 			privateKey: "",
 			feeRatePercent: String(alipayConfig.data.feeRateBps / 100),
 		});
@@ -353,7 +357,7 @@ const AdminBilling = () => {
 		if (
 			alipayDraft.enabled &&
 			(!alipayDraft.appId.trim() ||
-				!alipayDraft.alipayPublicKey.trim() ||
+				(!alipayConfig.data?.hasPublicKey && !alipayDraft.alipayPublicKey.trim()) ||
 				(!alipayConfig.data?.hasPrivateKey && !alipayDraft.privateKey.trim()))
 		) {
 			toast.error(t("validation.alipay"));
@@ -364,11 +368,15 @@ const AdminBilling = () => {
 			enabled: alipayDraft.enabled,
 			appId: alipayDraft.appId.trim(),
 			gateway: alipayDraft.gateway,
-			alipayPublicKey: alipayDraft.alipayPublicKey.trim(),
 			feeRateBps,
 		};
+		const alipayPublicKey = alipayDraft.alipayPublicKey.trim();
 		const privateKey = alipayDraft.privateKey.trim();
-		saveAlipayMutation.mutate(privateKey ? { ...baseConfig, privateKey } : baseConfig);
+		saveAlipayMutation.mutate({
+			...baseConfig,
+			...(alipayPublicKey ? { alipayPublicKey } : {}),
+			...(privateKey ? { privateKey } : {}),
+		});
 	};
 
 	const tabs: Array<{ id: AdminTab; label: string }> = [
@@ -1193,9 +1201,19 @@ const AdminBilling = () => {
 									</span>
 								</label>
 								<label className="form-control w-full md:col-span-2">
-									<span className="label-text mb-2">{t("alipay.publicKey")}</span>
+									<span className="label-text mb-2 flex flex-wrap items-center gap-2">
+										{t("alipay.publicKey")}
+										{alipayConfig.data.hasPublicKey ? (
+											<span className="badge badge-success badge-outline gap-1">
+												<CheckCircleIcon className="h-3.5 w-3.5" />
+												{t("alipay.publicKeyConfigured")}
+											</span>
+										) : null}
+									</span>
 									<textarea
 										className="textarea textarea-bordered min-h-32 w-full font-mono text-xs"
+										name="new-alipay-public-key"
+										autoComplete="off"
 										spellCheck={false}
 										value={alipayDraft.alipayPublicKey}
 										onChange={(event) =>
@@ -1203,6 +1221,11 @@ const AdminBilling = () => {
 												...current,
 												alipayPublicKey: event.target.value,
 											}))
+										}
+										placeholder={
+											alipayConfig.data.hasPublicKey
+												? t("alipay.publicKeyKeep")
+												: t("alipay.publicKeyRequired")
 										}
 										aria-describedby="alipay-public-key-help"
 									/>

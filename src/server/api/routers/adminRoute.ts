@@ -31,12 +31,37 @@ import { disconnectUserSockets } from "~/server/socketRegistry";
 
 type WithError<T> = T & { error?: boolean; message?: string };
 type GlobalOptionsResponse = WithError<
-	Omit<GlobalOptions, "smtpPassword" | "alipayPrivateKeyEncrypted">
+	Omit<GlobalOptions, "smtpPassword" | "alipayPrivateKeyEncrypted" | "alipayPublicKey">
 > & {
 	smtpPassword: null;
 	hasSmtpPassword: boolean;
+	hasAlipayPublicKey: boolean;
 	hasAlipayPrivateKey: boolean;
 };
+
+function getPublicGlobalOptions(
+	options: WithError<GlobalOptions>,
+): GlobalOptionsResponse {
+	const { smtpPassword, alipayPrivateKeyEncrypted, alipayPublicKey, ...publicOptions } =
+		options;
+	return {
+		...publicOptions,
+		smtpPassword: null,
+		hasSmtpPassword: Boolean(smtpPassword),
+		hasAlipayPublicKey: Boolean(alipayPublicKey),
+		hasAlipayPrivateKey: Boolean(alipayPrivateKeyEncrypted),
+	};
+}
+
+const mailTemplateKeyInput = z.enum([
+	MailTemplateKey.InviteUser,
+	MailTemplateKey.InviteOrganization,
+	MailTemplateKey.ForgotPassword,
+	MailTemplateKey.VerifyEmail,
+	MailTemplateKey.Notification,
+	MailTemplateKey.NewDeviceNotification,
+	MailTemplateKey.DeviceIpChangeNotification,
+]);
 
 export const adminRouter = createTRPCRouter({
 	getSystemUpdateStatus: adminRoleProtectedRoute.query(() => getSystemUpdateStatus()),
@@ -473,15 +498,7 @@ export const adminRouter = createTRPCRouter({
 				};
 			}
 			// Never send actual password to client - only indicate if one exists
-			if (options) {
-				const { smtpPassword, alipayPrivateKeyEncrypted, ...publicOptions } = options;
-				return {
-					...publicOptions,
-					smtpPassword: null,
-					hasSmtpPassword: Boolean(smtpPassword),
-					hasAlipayPrivateKey: Boolean(alipayPrivateKeyEncrypted),
-				};
-			}
+			if (options) return getPublicGlobalOptions(options);
 			return null;
 		},
 	),
@@ -537,7 +554,7 @@ export const adminRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return await ctx.prisma.globalOptions.update({
+			const options = await ctx.prisma.globalOptions.update({
 				where: {
 					id: 1,
 				},
@@ -545,11 +562,12 @@ export const adminRouter = createTRPCRouter({
 					...input,
 				},
 			});
+			return getPublicGlobalOptions(options);
 		}),
 	getMailTemplates: adminRoleProtectedRoute
 		.input(
 			z.object({
-				template: z.string(),
+				template: mailTemplateKeyInput,
 			}),
 		)
 		.query(async ({ ctx, input }) => {
@@ -558,8 +576,16 @@ export const adminRouter = createTRPCRouter({
 					id: 1,
 				},
 			});
-
-			return JSON.parse(templates?.[input.template]) ?? mailTemplateMap[input.template]();
+			const storedTemplate = templates?.[input.template];
+			if (typeof storedTemplate === "string") {
+				try {
+					return JSON.parse(storedTemplate);
+				} catch {
+					return mailTemplateMap[input.template]();
+				}
+			}
+			if (storedTemplate && typeof storedTemplate === "object") return storedTemplate;
+			return mailTemplateMap[input.template]();
 		}),
 
 	setMail: adminRoleProtectedRoute
@@ -595,7 +621,7 @@ export const adminRouter = createTRPCRouter({
 
 			const { smtpPassword, ...restInput } = input;
 
-			return await ctx.prisma.globalOptions.update({
+			const options = await ctx.prisma.globalOptions.update({
 				where: {
 					id: 1,
 				},
@@ -604,25 +630,27 @@ export const adminRouter = createTRPCRouter({
 					...passwordUpdate,
 				},
 			});
+			return getPublicGlobalOptions(options);
 		}),
 	setMailTemplates: adminRoleProtectedRoute
 		.input(
 			z.object({
 				template: z.string(),
-				type: z.string(),
+				type: mailTemplateKeyInput,
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			const { type, template } = input;
-			return await ctx.prisma.globalOptions.update({
+			const options = await ctx.prisma.globalOptions.update({
 				where: { id: 1 },
 				data: { [type]: template },
 			});
+			return getPublicGlobalOptions(options);
 		}),
 	getDefaultMailTemplate: adminRoleProtectedRoute
 		.input(
 			z.object({
-				template: z.string(),
+				template: mailTemplateKeyInput,
 			}),
 		)
 		.mutation(({ input }) => {

@@ -183,11 +183,12 @@ describe("Billing administration page", () => {
 				enabled: true,
 				appId: "2026000000001",
 				gateway: "https://openapi.alipay.com/gateway.do",
-				alipayPublicKey: "PUBLIC_KEY",
 				feeRateBps: 60,
+				hasPublicKey: true,
 				hasPrivateKey: true,
 				notifyUrl: "https://ztnet.example/api/billing/alipay/notify",
 				returnUrl: "https://ztnet.example/billing/return",
+				alipayPublicKey: "SERVER_PUBLIC_KEY_MUST_NOT_RENDER",
 				privateKey: "SERVER_SECRET_MUST_NOT_RENDER",
 			},
 			isLoading: false,
@@ -266,30 +267,38 @@ describe("Billing administration page", () => {
 		expect(manualRenew.mock.calls[0][0]).not.toHaveProperty("paymentMethod");
 	});
 
-	it("never reflects the stored private key and only submits a newly entered value", async () => {
+	it("never reflects stored Alipay keys and only submits newly entered values", async () => {
 		const user = userEvent.setup();
 		renderPage();
 		await user.click(screen.getByRole("tab", { name: "Alipay" }));
 
+		const publicKeyInput = screen.getByLabelText(/^Alipay public key/);
 		const privateKeyInput = screen.getByLabelText(/Merchant application private key/);
+		expect(publicKeyInput).toHaveValue("");
 		expect(privateKeyInput).toHaveValue("");
+		expect(screen.queryByDisplayValue("SERVER_PUBLIC_KEY_MUST_NOT_RENDER")).toBeNull();
 		expect(screen.queryByDisplayValue("SERVER_SECRET_MUST_NOT_RENDER")).toBeNull();
+		expect(screen.getAllByText("Configured")).toHaveLength(2);
 
 		await user.click(screen.getByRole("button", { name: "Save Alipay configuration" }));
 		expect(saveAlipayConfig).toHaveBeenLastCalledWith({
 			enabled: true,
 			appId: "2026000000001",
 			gateway: "https://openapi.alipay.com/gateway.do",
-			alipayPublicKey: "PUBLIC_KEY",
 			feeRateBps: 60,
 		});
 		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("sellerId");
+		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("alipayPublicKey");
 		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("privateKey");
 
+		await user.type(publicKeyInput, "NEW_PUBLIC_KEY");
 		await user.type(privateKeyInput, "NEW_PRIVATE_KEY");
 		await user.click(screen.getByRole("button", { name: "Save Alipay configuration" }));
 		expect(saveAlipayConfig).toHaveBeenLastCalledWith(
-			expect.objectContaining({ privateKey: "NEW_PRIVATE_KEY" }),
+			expect.objectContaining({
+				alipayPublicKey: "NEW_PUBLIC_KEY",
+				privateKey: "NEW_PRIVATE_KEY",
+			}),
 		);
 	});
 
