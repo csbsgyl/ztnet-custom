@@ -1471,7 +1471,7 @@
 				"renewal": "Select a user and plan and enter valid renewal values.",
 				"alipay": "Complete the required Alipay credentials before enabling payments.",
 				"alipayFee": "Enter a payment fee from 0 to 100 with no more than two decimal places.",
-				"alipayCallbacks": "Enter valid HTTP/HTTPS callback URLs. Both are required when payments are enabled."
+				"alipayCallbacks": "Enter valid HTTP/HTTPS domains without paths. Both callback domains are required when payments are enabled."
 			},
 			"metrics": {
 				"activeSubscriptions": "Active subscriptions",
@@ -1578,10 +1578,10 @@
 				"feeRateHelp": "Applied only to self-service Alipay orders and rounded to the nearest cent. Manual renewals are not charged.",
 				"sandbox": "Use Alipay sandbox",
 				"sandboxDescription": "Enable only for Alipay sandbox credentials and test transactions.",
-				"notifyUrl": "Asynchronous notification URL",
-				"notifyUrlHelp": "Alipay sends payment notifications here. Enter the complete URL exposed by your reverse proxy.",
-				"returnUrl": "Browser return URL",
-				"returnUrlHelp": "Users are sent here after payment. The order ID is appended automatically.",
+				"notifyUrl": "Asynchronous notification domain",
+				"notifyUrlHelp": "Enter only the HTTP/HTTPS domain, with an optional port. The path is fixed to /api/billing/alipay/notify.",
+				"returnUrl": "Browser return domain",
+				"returnUrlHelp": "Enter only the HTTP/HTTPS domain, with an optional port. The path is fixed to /billing/return; the order ID is added automatically.",
 				"save": "Save Alipay configuration"
 			}
 		}

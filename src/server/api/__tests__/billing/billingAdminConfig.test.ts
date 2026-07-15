@@ -72,8 +72,8 @@ test("saves the three Alipay credentials and fee without requiring a seller ID",
 		alipayPublicKey: credentials.alipayPublicKey,
 		privateKey: credentials.privateKey,
 		feeRateBps: 60,
-		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
-		returnUrl: "https://billing.example.test/billing/return",
+		notifyOrigin: "https://billing.example.test",
+		returnOrigin: "https://billing.example.test",
 	});
 
 	expect(harness.upsert).toHaveBeenCalledWith(
@@ -96,8 +96,8 @@ test("saves the three Alipay credentials and fee without requiring a seller ID",
 	expect(result).toMatchObject({
 		enabled: true,
 		feeRateBps: 60,
-		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
-		returnUrl: "https://billing.example.test/billing/return",
+		notifyOrigin: "https://billing.example.test",
+		returnOrigin: "https://billing.example.test",
 		hasPublicKey: true,
 		hasPrivateKey: true,
 	});
@@ -118,8 +118,8 @@ test("keeps both stored Alipay keys when the key fields are left empty", async (
 		appId: "2026071500000001",
 		gateway: "https://openapi.alipay.com/gateway.do",
 		feeRateBps: 60,
-		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
-		returnUrl: "https://billing.example.test/billing/return",
+		notifyOrigin: "https://billing.example.test",
+		returnOrigin: "https://billing.example.test",
 	});
 
 	const update = harness.upsert.mock.calls[0]?.[0].update;
@@ -140,8 +140,8 @@ test("reports which Alipay key has an invalid format", async () => {
 			gateway: "https://openapi.alipay.com/gateway.do",
 			alipayPublicKey: "not-a-public-key",
 			feeRateBps: 0,
-			notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
-			returnUrl: "https://billing.example.test/billing/return",
+			notifyOrigin: "https://billing.example.test",
+			returnOrigin: "https://billing.example.test",
 		}),
 	).rejects.toThrow("Alipay public key format is invalid");
 
@@ -153,15 +153,41 @@ test("reports which Alipay key has an invalid format", async () => {
 			alipayPublicKey: credentials.alipayPublicKey,
 			privateKey: "not-a-private-key",
 			feeRateBps: 0,
-			notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
-			returnUrl: "https://billing.example.test/billing/return",
+			notifyOrigin: "https://billing.example.test",
+			returnOrigin: "https://billing.example.test",
 		}),
 	).rejects.toThrow("merchant application private key format is invalid");
 
 	expect(harness.upsert).not.toHaveBeenCalled();
 });
 
-test("requires manually configured callback URLs before enabling Alipay", async () => {
+test("rejects callback paths when only an origin is allowed", async () => {
+	const harness = createHarness();
+
+	await expect(
+		harness.caller.saveAlipayConfig({
+			enabled: false,
+			appId: "2026071500000001",
+			gateway: "https://openapi.alipay.com/gateway.do",
+			feeRateBps: 0,
+			notifyOrigin: "https://billing.example.test/custom/notify",
+			returnOrigin: "https://billing.example.test",
+		}),
+	).rejects.toThrow("asynchronous notification domain");
+	await expect(
+		harness.caller.saveAlipayConfig({
+			enabled: false,
+			appId: "2026071500000001",
+			gateway: "https://openapi.alipay.com/gateway.do",
+			feeRateBps: 0,
+			notifyOrigin: "https://billing.example.test",
+			returnOrigin: "https://billing.example.test/billing/return",
+		}),
+	).rejects.toThrow("browser return domain");
+	expect(harness.upsert).not.toHaveBeenCalled();
+});
+
+test("requires manually configured callback domains before enabling Alipay", async () => {
 	const harness = createHarness({
 		alipayAppId: "2026071500000001",
 		alipayPublicKey: "stored-public-key",
@@ -174,14 +200,14 @@ test("requires manually configured callback URLs before enabling Alipay", async 
 			appId: "2026071500000001",
 			gateway: "https://openapi.alipay.com/gateway.do",
 			feeRateBps: 0,
-			notifyUrl: "",
-			returnUrl: "",
+			notifyOrigin: "",
+			returnOrigin: "",
 		}),
-	).rejects.toThrow("Both Alipay callback URLs are required");
+	).rejects.toThrow("Both Alipay callback domains are required");
 	expect(harness.upsert).not.toHaveBeenCalled();
 });
 
-test("keeps callback URLs when payments are disabled without replacement values", async () => {
+test("keeps callback domains when payments are disabled without replacement values", async () => {
 	const harness = createHarness({
 		alipayEnabled: true,
 		alipayAppId: "2026071500000001",
@@ -196,18 +222,17 @@ test("keeps callback URLs when payments are disabled without replacement values"
 		appId: "2026071500000001",
 		gateway: "https://openapi.alipay.com/gateway.do",
 		feeRateBps: 0,
-		notifyUrl: "",
-		returnUrl: "",
+		notifyOrigin: "",
+		returnOrigin: "",
 	});
 
-	expect(harness.upsert.mock.calls[0]?.[0].update).toMatchObject({
-		alipayEnabled: false,
-		alipayNotifyUrl: "https://billing.example.test/api/billing/alipay/notify",
-		alipayReturnUrl: "https://billing.example.test/billing/return",
-	});
+	const update = harness.upsert.mock.calls[0]?.[0].update;
+	expect(update).toMatchObject({ alipayEnabled: false });
+	expect(update).not.toHaveProperty("alipayNotifyUrl");
+	expect(update).not.toHaveProperty("alipayReturnUrl");
 	expect(result).toMatchObject({
-		notifyUrl: "https://billing.example.test/api/billing/alipay/notify",
-		returnUrl: "https://billing.example.test/billing/return",
+		notifyOrigin: "https://billing.example.test",
+		returnOrigin: "https://billing.example.test",
 	});
 });
 
@@ -226,10 +251,10 @@ test("does not enable Alipay with invalid callback URLs already stored in the da
 			appId: "2026071500000001",
 			gateway: "https://openapi.alipay.com/gateway.do",
 			feeRateBps: 0,
-			notifyUrl: "",
-			returnUrl: "",
+			notifyOrigin: "",
+			returnOrigin: "",
 		}),
-	).rejects.toThrow("Both Alipay callback URLs must be valid");
+	).rejects.toThrow("Both Alipay callback domains are required");
 	expect(harness.upsert).not.toHaveBeenCalled();
 });
 
@@ -240,8 +265,8 @@ test("returns empty callback fields instead of deriving them from the server URL
 
 	try {
 		await expect(harness.caller.getAlipayConfig()).resolves.toMatchObject({
-			notifyUrl: "",
-			returnUrl: "",
+			notifyOrigin: "",
+			returnOrigin: "",
 		});
 	} finally {
 		process.env.NEXTAUTH_URL = originalNextAuthUrl;

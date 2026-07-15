@@ -1,5 +1,11 @@
 import type { GlobalOptions } from "@prisma/client";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import {
+	ALIPAY_NOTIFY_PATH,
+	ALIPAY_RETURN_PATH,
+	buildAlipayCallbackUrl,
+	getAlipayCallbackOrigin,
+} from "~/lib/billing/alipayCallbacks";
 import { generateInstanceSecret } from "~/utils/encryption";
 
 export const ALIPAY_PRIVATE_KEY_SECRET = "_ztnet_alipay_private_key";
@@ -62,40 +68,25 @@ export function getAlipayRuntimeConfig(
 	};
 }
 
-function parseAlipayCallbackUrl(value: string | null | undefined): URL {
-	if (!value) throw new Error("Alipay callback URLs are not configured.");
-	let url: URL;
-	try {
-		url = new URL(value);
-	} catch {
-		throw new Error("Alipay callback URLs must be complete HTTP or HTTPS URLs.");
-	}
-	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new Error("Alipay callback URLs must be complete HTTP or HTTPS URLs.");
-	}
-	if (url.username || url.password || url.hash) {
-		throw new Error("Alipay callback URLs must not contain credentials or a fragment.");
-	}
-	return url;
-}
-
-export function isValidAlipayCallbackUrl(value: string): boolean {
-	try {
-		parseAlipayCallbackUrl(value);
-		return true;
-	} catch {
-		return false;
-	}
+export function getAlipayCallbackOrigins(options: AlipayCallbackOptionFields | null) {
+	return {
+		notifyOrigin: getAlipayCallbackOrigin(options?.alipayNotifyUrl, ALIPAY_NOTIFY_PATH),
+		returnOrigin: getAlipayCallbackOrigin(options?.alipayReturnUrl, ALIPAY_RETURN_PATH),
+	};
 }
 
 export function getAlipayCallbackUrls(
 	options: AlipayCallbackOptionFields | null,
 	orderId: string,
 ) {
-	const notifyUrl = options?.alipayNotifyUrl?.trim() ?? "";
-	const returnUrl = options?.alipayReturnUrl?.trim() ?? "";
-	parseAlipayCallbackUrl(notifyUrl);
-	const browserReturnUrl = parseAlipayCallbackUrl(returnUrl);
+	const { notifyOrigin, returnOrigin } = getAlipayCallbackOrigins(options);
+	if (!notifyOrigin || !returnOrigin) {
+		throw new Error("Alipay callback domains are not configured.");
+	}
+	const notifyUrl = buildAlipayCallbackUrl(notifyOrigin, ALIPAY_NOTIFY_PATH);
+	const browserReturnUrl = new URL(
+		buildAlipayCallbackUrl(returnOrigin, ALIPAY_RETURN_PATH),
+	);
 	browserReturnUrl.searchParams.set("orderId", orderId);
 	return {
 		notifyUrl,
@@ -137,6 +128,7 @@ export function decryptAlipayPrivateKey(value: string): string {
 export function getPublicAlipayConfig(
 	options: (AlipayOptionFields & AlipayCallbackOptionFields) | null,
 ) {
+	const callbacks = getAlipayCallbackOrigins(options);
 	return {
 		enabled: options?.alipayEnabled ?? false,
 		appId: options?.alipayAppId ?? "",
@@ -144,7 +136,6 @@ export function getPublicAlipayConfig(
 		feeRateBps: options?.alipayFeeRateBps ?? 0,
 		hasPublicKey: Boolean(options?.alipayPublicKey),
 		hasPrivateKey: Boolean(options?.alipayPrivateKeyEncrypted),
-		notifyUrl: options?.alipayNotifyUrl ?? "",
-		returnUrl: options?.alipayReturnUrl ?? "",
+		...callbacks,
 	};
 }

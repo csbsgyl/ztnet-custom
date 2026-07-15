@@ -1,13 +1,19 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import {
+	ALIPAY_NOTIFY_PATH,
+	ALIPAY_RETURN_PATH,
+	buildAlipayCallbackUrl,
+	isValidAlipayCallbackOrigin,
+} from "~/lib/billing/alipayCallbacks";
 import { signContent, verifyContentSignature } from "~/server/billing/alipay";
 import {
 	DEFAULT_ALIPAY_GATEWAY,
 	ALIPAY_GATEWAYS,
 	encryptAlipayPrivateKey,
+	getAlipayCallbackOrigins,
 	getAlipayRuntimeConfig,
 	getPublicAlipayConfig,
-	isValidAlipayCallbackUrl,
 } from "~/server/billing/config";
 import { createPendingOrder } from "~/server/billing/orders";
 import { queryAndReconcileAlipayOrder } from "~/server/billing/payment";
@@ -32,19 +38,19 @@ const alipayConfigInput = z.object({
 	alipayPublicKey: z.string().trim().max(16_384).optional(),
 	privateKey: z.string().trim().max(16_384).optional(),
 	feeRateBps: z.number().int().min(0).max(10_000),
-	notifyUrl: z
+	notifyOrigin: z
 		.string()
 		.trim()
 		.max(2_048)
-		.refine((value) => !value || isValidAlipayCallbackUrl(value), {
-			message: "The asynchronous notification URL must use HTTP or HTTPS.",
+		.refine((value) => !value || isValidAlipayCallbackOrigin(value), {
+			message: "The asynchronous notification domain must be an HTTP or HTTPS origin.",
 		}),
-	returnUrl: z
+	returnOrigin: z
 		.string()
 		.trim()
 		.max(2_048)
-		.refine((value) => !value || isValidAlipayCallbackUrl(value), {
-			message: "The browser return URL must use HTTP or HTTPS.",
+		.refine((value) => !value || isValidAlipayCallbackOrigin(value), {
+			message: "The browser return domain must be an HTTP or HTTPS origin.",
 		}),
 });
 
@@ -334,23 +340,15 @@ export const billingAdminRouter = createTRPCRouter({
 			const current = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
 			const newPublicKey = input.alipayPublicKey || undefined;
 			const newPrivateKey = input.privateKey || undefined;
-			const notifyUrl = input.notifyUrl || current?.alipayNotifyUrl || null;
-			const returnUrl = input.returnUrl || current?.alipayReturnUrl || null;
+			const currentCallbacks = getAlipayCallbackOrigins(current);
+			const notifyOrigin = input.notifyOrigin || currentCallbacks.notifyOrigin;
+			const returnOrigin = input.returnOrigin || currentCallbacks.returnOrigin;
 			if (input.enabled) {
-				if (!notifyUrl || !returnUrl) {
+				if (!notifyOrigin || !returnOrigin) {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
 						message:
-							"Both Alipay callback URLs are required before payments can be enabled.",
-					});
-				}
-				if (
-					!isValidAlipayCallbackUrl(notifyUrl) ||
-					!isValidAlipayCallbackUrl(returnUrl)
-				) {
-					throw new TRPCError({
-						code: "BAD_REQUEST",
-						message: "Both Alipay callback URLs must be valid HTTP or HTTPS URLs.",
+							"Both Alipay callback domains are required before payments can be enabled.",
 					});
 				}
 				if (!input.appId || (!newPublicKey && !current?.alipayPublicKey)) {
@@ -388,6 +386,12 @@ export const billingAdminRouter = createTRPCRouter({
 				}
 			}
 			let encryptedPrivateKey: string | undefined;
+			const notifyUrl = input.notifyOrigin
+				? buildAlipayCallbackUrl(input.notifyOrigin, ALIPAY_NOTIFY_PATH)
+				: undefined;
+			const returnUrl = input.returnOrigin
+				? buildAlipayCallbackUrl(input.returnOrigin, ALIPAY_RETURN_PATH)
+				: undefined;
 			try {
 				encryptedPrivateKey = newPrivateKey
 					? encryptAlipayPrivateKey(newPrivateKey)
@@ -412,8 +416,8 @@ export const billingAdminRouter = createTRPCRouter({
 							alipayPrivateKeyEncrypted:
 								encryptedPrivateKey ?? current?.alipayPrivateKeyEncrypted ?? null,
 							alipayFeeRateBps: input.feeRateBps,
-							alipayNotifyUrl: notifyUrl,
-							alipayReturnUrl: returnUrl,
+							alipayNotifyUrl: notifyUrl ?? null,
+							alipayReturnUrl: returnUrl ?? null,
 						},
 						update: {
 							alipayEnabled: input.enabled,
@@ -421,8 +425,8 @@ export const billingAdminRouter = createTRPCRouter({
 							alipaySellerId: null,
 							alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
 							alipayFeeRateBps: input.feeRateBps,
-							alipayNotifyUrl: notifyUrl,
-							alipayReturnUrl: returnUrl,
+							...(notifyUrl ? { alipayNotifyUrl: notifyUrl } : {}),
+							...(returnUrl ? { alipayReturnUrl: returnUrl } : {}),
 							...(newPublicKey ? { alipayPublicKey: newPublicKey } : {}),
 							...(encryptedPrivateKey
 								? { alipayPrivateKeyEncrypted: encryptedPrivateKey }

@@ -186,8 +186,8 @@ describe("Billing administration page", () => {
 				feeRateBps: 60,
 				hasPublicKey: true,
 				hasPrivateKey: true,
-				notifyUrl: "https://ztnet.example/api/billing/alipay/notify",
-				returnUrl: "https://ztnet.example/billing/return",
+				notifyOrigin: "https://ztnet.example",
+				returnOrigin: "https://ztnet.example",
 				alipayPublicKey: "SERVER_PUBLIC_KEY_MUST_NOT_RENDER",
 				privateKey: "SERVER_SECRET_MUST_NOT_RENDER",
 			},
@@ -276,12 +276,14 @@ describe("Billing administration page", () => {
 		const privateKeyInput = screen.getByLabelText(/Merchant application private key/);
 		expect(publicKeyInput).toHaveValue("");
 		expect(privateKeyInput).toHaveValue("");
-		expect(screen.getByLabelText("Asynchronous notification URL")).toHaveValue(
-			"https://ztnet.example/api/billing/alipay/notify",
+		expect(screen.getByLabelText("Asynchronous notification domain")).toHaveValue(
+			"https://ztnet.example",
 		);
-		expect(screen.getByLabelText("Browser return URL")).toHaveValue(
-			"https://ztnet.example/billing/return",
+		expect(screen.getByLabelText("Browser return domain")).toHaveValue(
+			"https://ztnet.example",
 		);
+		expect(screen.getByText("/api/billing/alipay/notify")).toBeInTheDocument();
+		expect(screen.getByText("/billing/return")).toBeInTheDocument();
 		expect(screen.queryByDisplayValue("SERVER_PUBLIC_KEY_MUST_NOT_RENDER")).toBeNull();
 		expect(screen.queryByDisplayValue("SERVER_SECRET_MUST_NOT_RENDER")).toBeNull();
 		expect(screen.getAllByText("Configured")).toHaveLength(2);
@@ -292,8 +294,8 @@ describe("Billing administration page", () => {
 			appId: "2026000000001",
 			gateway: "https://openapi.alipay.com/gateway.do",
 			feeRateBps: 60,
-			notifyUrl: "https://ztnet.example/api/billing/alipay/notify",
-			returnUrl: "https://ztnet.example/billing/return",
+			notifyOrigin: "https://ztnet.example",
+			returnOrigin: "https://ztnet.example",
 		});
 		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("sellerId");
 		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("alipayPublicKey");
