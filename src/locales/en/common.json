@@ -785,6 +785,7 @@
 			"confirmTitle": "Check and install updates",
 			"confirmDescription": "ZTNET will check the configured image source and replace only the application container when a newer image is available. The page may disconnect briefly.",
 			"updateRequested": "Update check started. ZTNET will restart only if a newer image is available.",
+			"updateAlreadyRunning": "An update is already running. Monitoring its installation progress.",
 			"progress": {
 				"checkingTitle": "Checking for updates",
 				"checkingDescription": "Contacting the release service and comparing image builds.",

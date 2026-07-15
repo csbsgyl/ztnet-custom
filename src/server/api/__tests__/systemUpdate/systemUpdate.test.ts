@@ -73,7 +73,10 @@ describe("system update service", () => {
 	it("triggers the scoped updater with its bearer token", async () => {
 		fetchMock.mockResolvedValue({ ok: true, status: 200 });
 
-		await expect(triggerSystemUpdate()).resolves.toMatchObject({ accepted: true });
+		await expect(triggerSystemUpdate()).resolves.toMatchObject({
+			accepted: true,
+			alreadyRunning: false,
+		});
 		expect(fetchMock).toHaveBeenCalledWith(
 			"http://updater:8080/v1/update?async=true",
 			expect.objectContaining({
@@ -81,6 +84,29 @@ describe("system update service", () => {
 				headers: { Authorization: "Bearer update-token" },
 			}),
 		);
+	});
+
+	it("continues monitoring when Watchtower reports an update already running", async () => {
+		fetchMock.mockResolvedValue({
+			ok: false,
+			status: 429,
+			text: async () => JSON.stringify({ error: "another update is already running" }),
+		});
+
+		await expect(triggerSystemUpdate()).resolves.toMatchObject({
+			accepted: true,
+			alreadyRunning: true,
+		});
+	});
+
+	it("does not mistake a generic rate-limit response for a running update", async () => {
+		fetchMock.mockResolvedValue({
+			ok: false,
+			status: 429,
+			text: async () => "",
+		});
+
+		await expect(triggerSystemUpdate()).rejects.toThrow("rejected the request (429)");
 	});
 
 	it("refuses manual updates when the updater token is absent", async () => {

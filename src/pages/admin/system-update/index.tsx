@@ -230,11 +230,13 @@ const SystemUpdate = () => {
 	});
 	const { mutate: triggerUpdate, isLoading: isTriggering } =
 		api.admin.triggerSystemUpdate.useMutation({
-			onSuccess: () => {
+			onSuccess: (result) => {
 				setUpdateProgress((current) =>
 					current ? { ...current, phase: "installing" } : current,
 				);
-				toast.success(t("updateRequested"));
+				toast.success(
+					t(result.alreadyRunning ? "updateAlreadyRunning" : "updateRequested"),
+				);
 				void refetch();
 			},
 			onError: (error) => {

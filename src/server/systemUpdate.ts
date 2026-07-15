@@ -146,12 +146,24 @@ export const triggerSystemUpdate = async () => {
 		throw new Error("The update service is not reachable.");
 	}
 
+	if (response.status === 429) {
+		const responseBody = await response.text().catch(() => "");
+		if (responseBody.toLowerCase().includes("another update is already running")) {
+			return {
+				accepted: true,
+				alreadyRunning: true,
+				triggeredAt: new Date().toISOString(),
+			};
+		}
+	}
+
 	if (!response.ok) {
 		throw new Error(`The update service rejected the request (${response.status}).`);
 	}
 
 	return {
 		accepted: true,
+		alreadyRunning: false,
 		triggeredAt: new Date().toISOString(),
 	};
 };

@@ -525,6 +525,7 @@
 			"confirmTitle": "檢查並安裝更新",
 			"confirmDescription": "ZTNET 將檢查目前映像來源；發現新映像時只會替換應用程式容器，頁面可能短暫中斷。",
 			"updateRequested": "更新檢查已啟動。僅在發現新映像時才會重新啟動 ZTNET。",
+			"updateAlreadyRunning": "已有更新工作正在執行，正在繼續監控安裝進度。",
 			"progress": {
 				"checkingTitle": "正在檢查更新",
 				"checkingDescription": "正在連線發佈服務並比較目前建置與最新映像。",

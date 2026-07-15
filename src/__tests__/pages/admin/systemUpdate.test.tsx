@@ -31,7 +31,10 @@ describe("System update admin page", () => {
 	const refetch = jest.fn();
 	const triggerUpdate = jest.fn();
 	const callModal = jest.fn();
-	let mutationOptions: { onSuccess?: () => void; onError?: (error: Error) => void };
+	let mutationOptions: {
+		onSuccess?: (result: { alreadyRunning: boolean }) => void;
+		onError?: (error: Error) => void;
+	};
 
 	beforeEach(() => {
 		window.localStorage.clear();
@@ -105,9 +108,22 @@ describe("System update admin page", () => {
 		expect(screen.getByText("Submitting update request")).toBeInTheDocument();
 		expect(screen.getByText("Live")).toBeInTheDocument();
 
-		act(() => mutationOptions.onSuccess?.());
+		act(() => mutationOptions.onSuccess?.({ alreadyRunning: false }));
 		expect(screen.getByText("Downloading and installing image")).toBeInTheDocument();
 		expect(screen.getByText("Install")).toBeInTheDocument();
+	});
+
+	it("keeps monitoring when an automatic update is already running", async () => {
+		const user = userEvent.setup();
+		renderPage();
+
+		await user.click(screen.getByRole("button", { name: "Check and install" }));
+		act(() => callModal.mock.calls[0][0].yesAction());
+		act(() => mutationOptions.onSuccess?.({ alreadyRunning: true }));
+
+		expect(screen.getByText("Downloading and installing image")).toBeInTheDocument();
+		expect(screen.queryByText("Update not completed")).toBeNull();
+		expect(screen.getByRole("button", { name: "Updating..." })).toBeDisabled();
 	});
 
 	it("shows a live animation for manual update checks", async () => {

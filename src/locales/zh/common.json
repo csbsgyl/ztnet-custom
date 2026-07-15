@@ -785,6 +785,7 @@
 			"confirmTitle": "检查并安装更新",
 			"confirmDescription": "ZTNET 将检查当前镜像来源；发现新镜像时只会替换应用容器，页面可能短暂断开。",
 			"updateRequested": "更新检查已启动。仅在发现新镜像时才会重启 ZTNET。",
+			"updateAlreadyRunning": "已有更新任务正在运行，正在继续监控安装进度。",
 			"progress": {
 				"checkingTitle": "正在检查更新",
 				"checkingDescription": "正在连接发布服务并比较当前构建与最新镜像。",
