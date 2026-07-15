@@ -32,6 +32,7 @@ type MutationOptions = {
 		subtotalCents: number;
 		feeRateBps: number;
 		feeAmountCents: number;
+		durationMonths: number;
 		paymentUrl: string;
 		expiresAt: string;
 	}) => void;
@@ -80,8 +81,9 @@ describe("Billing page", () => {
 						id: "plan-1",
 						name: "Pro",
 						description: "Five networks",
-						priceCents: 9900,
-						durationMonths: 12,
+						priceCents: 990,
+						durationMonths: 1,
+						upgradeAmountCents: 0,
 						rank: 1,
 						maxNetworks: 5,
 						isActive: true,
@@ -135,17 +137,18 @@ describe("Billing page", () => {
 		await user.click(screen.getByRole("button", { name: "Buy now" }));
 
 		expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");
-		expect(createOrder).toHaveBeenCalledWith({ planId: "plan-1" });
+		expect(createOrder).toHaveBeenCalledWith({ planId: "plan-1", quantity: 1 });
 
 		act(() =>
 			mutationOptions.onSuccess({
 				orderId: "order-1",
 				orderNo: "ZT202607140001",
 				status: "PENDING",
-				amountCents: 9959,
-				subtotalCents: 9900,
+				amountCents: 996,
+				subtotalCents: 990,
 				feeRateBps: 60,
-				feeAmountCents: 59,
+				feeAmountCents: 6,
+				durationMonths: 1,
 				paymentUrl: "https://alipay.example/pay",
 				expiresAt: "2026-07-14T10:15:00Z",
 			}),
@@ -153,7 +156,7 @@ describe("Billing page", () => {
 
 		expect(replace).toHaveBeenCalledWith("https://alipay.example/pay");
 		expect(screen.getByText("Payment fee (0.60%)")).toBeInTheDocument();
-		expect(screen.getByText("CN¥0.59")).toBeInTheDocument();
+		expect(screen.getByText("CN¥0.06")).toBeInTheDocument();
 		expect(await screen.findByText("Confirming payment")).toBeInTheDocument();
 		expect(screen.queryByText("Plan activated")).not.toBeInTheDocument();
 		expect(statusOptions.refetchInterval({ status: "PAID" })).toBe(2_000);
@@ -170,5 +173,31 @@ describe("Billing page", () => {
 		expect(statusOptions.refetchInterval({ status: "FULFILLED" })).toBe(false);
 		expect(statusOptions.refetchInterval({ status: "REFUNDED" })).toBe(false);
 		await waitFor(() => expect(overviewRefetch).toHaveBeenCalledTimes(1));
+	});
+
+	it("updates the duration and price before ordering multiple plan units", async () => {
+		const user = userEvent.setup();
+		jest.spyOn(window, "open").mockReturnValue({
+			closed: false,
+			opener: window,
+			location: { replace: jest.fn() },
+			close: jest.fn(),
+		} as unknown as Window);
+
+		renderPage();
+		const increaseButton = screen.getByRole("button", {
+			name: "Increase purchase quantity",
+		});
+		for (let quantity = 1; quantity < 12; quantity += 1) {
+			await user.click(increaseButton);
+		}
+
+		expect(screen.getByRole("spinbutton", { name: "Purchase quantity" })).toHaveValue(12);
+		expect(screen.getByText("12 months")).toBeInTheDocument();
+		expect(screen.getByText("CN¥118.80")).toBeInTheDocument();
+		expect(screen.getByText("CN¥119.51")).toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: "Buy now" }));
+		expect(createOrder).toHaveBeenCalledWith({ planId: "plan-1", quantity: 12 });
 	});
 });

@@ -1,6 +1,7 @@
 import {
 	addBillingMonths,
 	calculateFeeAmountCents,
+	calculatePlanPurchaseTerms,
 	calculateUpgradeAmountCents,
 	createPendingOrder,
 	type BillingDatabase,
@@ -22,6 +23,26 @@ describe("billing month arithmetic", () => {
 		["a year boundary", "2025-12-31T12:34:56.789Z", 2, "2026-02-28T12:34:56.789Z"],
 	])("clamps month-end dates for %s", (_case, input, months, expected) => {
 		expect(addBillingMonths(new Date(input), months)).toEqual(new Date(expected));
+	});
+});
+
+describe("plan purchase quantities", () => {
+	test("multiplies the plan duration and price by the purchase quantity", () => {
+		expect(
+			calculatePlanPurchaseTerms({ priceCents: 990, durationMonths: 1 }, 12),
+		).toEqual({ amountCents: 11_880, durationMonths: 12 });
+	});
+
+	test("rejects quantities that exceed the 120 month order limit", () => {
+		expect(() =>
+			calculatePlanPurchaseTerms({ priceCents: 9_900, durationMonths: 12 }, 11),
+		).toThrow("Total billing duration must not exceed 120 months.");
+	});
+
+	test("rejects a multiplied price that cannot fit in an order amount field", () => {
+		expect(() =>
+			calculatePlanPurchaseTerms({ priceCents: 100_000_000, durationMonths: 1 }, 22),
+		).toThrow("Calculated order amount is too large.");
 	});
 });
 
@@ -122,15 +143,22 @@ describe("upgrade price calculation", () => {
 			billingOrder: { create },
 		} as unknown as BillingDatabase;
 
-		await createPendingOrder({ db, userId: "user-1", planId: "plan-pro", now });
+		await createPendingOrder({
+			db,
+			userId: "user-1",
+			planId: "plan-pro",
+			quantity: 12,
+			now,
+		});
 
 		expect(create).toHaveBeenCalledWith({
 			data: expect.objectContaining({
-				amountCents: 4_000,
-				baseAmountCentsSnapshot: 2_500,
+				subject: "Pro（12个月）",
+				amountCents: 31_500,
+				baseAmountCentsSnapshot: 30_000,
 				upgradeAmountCentsSnapshot: 1_500,
 				planLevelSnapshot: 2,
-				durationMonthsSnapshot: 1,
+				durationMonthsSnapshot: 12,
 			}),
 		});
 	});
@@ -237,6 +265,56 @@ describe("payment fee calculation", () => {
 				baseAmountCentsSnapshot: 9_900,
 				feeRateBpsSnapshot: 60,
 				feeAmountCentsSnapshot: 59,
+			}),
+		});
+	});
+
+	test("charges twelve plan units and calculates the fee from their subtotal", async () => {
+		const create = jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+			id: "order-12",
+			...data,
+		}));
+		const db = {
+			user: {
+				findUnique: jest.fn(async () => ({
+					id: "user-1",
+					isActive: true,
+					role: "USER",
+				})),
+			},
+			billingPlan: {
+				findUnique: jest.fn(async () => ({
+					id: "plan-monthly",
+					name: "轻享版",
+					isActive: true,
+					level: 1,
+					priceCents: 990,
+					durationMonths: 1,
+					userGroupId: 20,
+					userGroup: { maxNetworks: 1 },
+				})),
+			},
+			subscription: { findUnique: jest.fn(async () => null) },
+			billingOrder: { create },
+		} as unknown as BillingDatabase;
+
+		await createPendingOrder({
+			db,
+			userId: "user-1",
+			planId: "plan-monthly",
+			quantity: 12,
+			feeRateBps: 60,
+		});
+
+		expect(create).toHaveBeenCalledWith({
+			data: expect.objectContaining({
+				subject: "轻享版（12个月）",
+				amountCents: 11_951,
+				baseAmountCentsSnapshot: 11_880,
+				planPriceCentsSnapshot: 11_880,
+				durationMonthsSnapshot: 12,
+				feeRateBpsSnapshot: 60,
+				feeAmountCentsSnapshot: 71,
 			}),
 		});
 	});

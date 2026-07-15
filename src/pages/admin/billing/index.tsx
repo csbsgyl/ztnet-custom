@@ -1062,6 +1062,7 @@ const AdminBilling = () => {
 											<th>{t("orders.number")}</th>
 											<th>{t("orders.user")}</th>
 											<th>{t("orders.plan")}</th>
+											<th>{t("orders.duration")}</th>
 											<th>{t("orders.amount")}</th>
 											<th>{t("orders.status")}</th>
 											<th>{t("orders.createdAt")}</th>
@@ -1075,6 +1076,9 @@ const AdminBilling = () => {
 												<td className="font-mono text-xs">{order.merchantOrderNo}</td>
 												<td>{order.userEmail}</td>
 												<td>{order.planName}</td>
+												<td>
+													{billingT("plans.months", { count: order.durationMonths })}
+												</td>
 												<td>
 													<p className="font-medium">
 														{currencyFormatter.format(order.amountCents / 100)}

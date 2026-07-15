@@ -244,6 +244,7 @@ export const billingAdminRouter = createTRPCRouter({
 				merchantOrderNo: order.merchantOrderNo,
 				userEmail: order.user.email,
 				planName: order.planNameSnapshot,
+				durationMonths: order.durationMonthsSnapshot,
 				amountCents: order.amountCents,
 				subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
 				feeRateBps: order.feeRateBpsSnapshot,

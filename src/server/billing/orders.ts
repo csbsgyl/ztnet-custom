@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { BillingOrderSource, Prisma, PrismaClient } from "@prisma/client";
 
 export const ORDER_TTL_MS = 15 * 60 * 1000;
+export const MAX_BILLING_DURATION_MONTHS = 120;
+export const MAX_BILLING_AMOUNT_CENTS = 2_147_483_647;
 const AVERAGE_BILLING_MONTH_MS = 2_629_746_000;
 
 export type BillingDatabase = PrismaClient | Prisma.TransactionClient;
@@ -46,7 +48,7 @@ export function calculateFeeAmountCents(amountCents: number, feeRateBps: number)
 }
 
 export function addBillingMonths(date: Date, months: number): Date {
-	if (!Number.isInteger(months) || months < 1 || months > 120) {
+	if (!Number.isInteger(months) || months < 1 || months > MAX_BILLING_DURATION_MONTHS) {
 		throw new Error("Billing duration must be between 1 and 120 months.");
 	}
 
@@ -59,6 +61,34 @@ export function addBillingMonths(date: Date, months: number): Date {
 	).getUTCDate();
 	result.setUTCDate(Math.min(originalDay, lastDay));
 	return result;
+}
+
+export function calculatePlanPurchaseTerms(
+	plan: { priceCents: number; durationMonths: number },
+	quantity: number,
+) {
+	if (!Number.isSafeInteger(quantity) || quantity < 1) {
+		throw new Error("Purchase quantity must be a positive integer.");
+	}
+	if (
+		!Number.isSafeInteger(plan.priceCents) ||
+		plan.priceCents < 1 ||
+		!Number.isInteger(plan.durationMonths) ||
+		plan.durationMonths < 1
+	) {
+		throw new Error("Plan pricing must use positive integers.");
+	}
+
+	const durationMonths = plan.durationMonths * quantity;
+	if (durationMonths > MAX_BILLING_DURATION_MONTHS) {
+		throw new Error("Total billing duration must not exceed 120 months.");
+	}
+	const amountCents = plan.priceCents * quantity;
+	if (!Number.isSafeInteger(amountCents) || amountCents > MAX_BILLING_AMOUNT_CENTS) {
+		throw new Error("Calculated order amount is too large.");
+	}
+
+	return { amountCents, durationMonths };
 }
 
 export function calculateUpgradeAmountCents({
@@ -111,6 +141,7 @@ export async function createPendingOrder({
 	userId,
 	planId,
 	source = "SELF_SERVICE",
+	quantity = 1,
 	durationMonths,
 	amountCents,
 	feeRateBps = 0,
@@ -121,6 +152,7 @@ export async function createPendingOrder({
 	userId: string;
 	planId: string;
 	source?: BillingOrderSource;
+	quantity?: number;
 	durationMonths?: number;
 	amountCents?: number;
 	feeRateBps?: number;
@@ -164,11 +196,15 @@ export async function createPendingOrder({
 	) {
 		throw new Error("Self-service plan downgrades are not allowed.");
 	}
-	const orderDurationMonths = durationMonths ?? plan.durationMonths;
+	const purchaseTerms = calculatePlanPurchaseTerms(plan, quantity);
+	const orderDurationMonths =
+		source === "SELF_SERVICE"
+			? purchaseTerms.durationMonths
+			: (durationMonths ?? plan.durationMonths);
 	if (
 		!Number.isInteger(orderDurationMonths) ||
 		orderDurationMonths < 1 ||
-		orderDurationMonths > 120
+		orderDurationMonths > MAX_BILLING_DURATION_MONTHS
 	) {
 		throw new Error("Billing duration must be between 1 and 120 months.");
 	}
@@ -189,21 +225,35 @@ export async function createPendingOrder({
 			targetDurationMonths: plan.durationMonths,
 		});
 	}
-	const baseAmountCents = amountCents ?? plan.priceCents;
-	if (!Number.isSafeInteger(baseAmountCents) || baseAmountCents < 0) {
+	const baseAmountCents =
+		source === "SELF_SERVICE"
+			? purchaseTerms.amountCents
+			: (amountCents ?? plan.priceCents);
+	if (
+		!Number.isSafeInteger(baseAmountCents) ||
+		baseAmountCents < 0 ||
+		baseAmountCents > MAX_BILLING_AMOUNT_CENTS
+	) {
 		throw new Error("Order amount must be a non-negative integer in cents.");
 	}
 	const subtotalAmountCents = baseAmountCents + upgradeAmountCents;
-	if (!Number.isSafeInteger(subtotalAmountCents)) {
+	if (
+		!Number.isSafeInteger(subtotalAmountCents) ||
+		subtotalAmountCents > MAX_BILLING_AMOUNT_CENTS
+	) {
 		throw new Error("Calculated order subtotal is too large.");
 	}
 	const appliedFeeRateBps = source === "SELF_SERVICE" ? feeRateBps : 0;
 	const feeAmountCents = calculateFeeAmountCents(subtotalAmountCents, appliedFeeRateBps);
 	const totalAmountCents = subtotalAmountCents + feeAmountCents;
-	if (!Number.isSafeInteger(totalAmountCents) || totalAmountCents < 1) {
-		if (source === "SELF_SERVICE") {
-			throw new Error("Self-service orders must have a positive amount.");
-		}
+	if (
+		!Number.isSafeInteger(totalAmountCents) ||
+		totalAmountCents > MAX_BILLING_AMOUNT_CENTS
+	) {
+		throw new Error("Calculated order total is too large.");
+	}
+	if (totalAmountCents < 1 && source === "SELF_SERVICE") {
+		throw new Error("Self-service orders must have a positive amount.");
 	}
 
 	return db.billingOrder.create({
@@ -215,9 +265,10 @@ export async function createPendingOrder({
 			source,
 			amountCents: totalAmountCents,
 			currency: "CNY",
-			subject: `${plan.name} - ${orderDurationMonths} month(s)`,
+			subject: `${plan.name}（${orderDurationMonths}个月）`,
 			planNameSnapshot: plan.name,
-			planPriceCentsSnapshot: plan.priceCents,
+			planPriceCentsSnapshot:
+				source === "SELF_SERVICE" ? baseAmountCents : plan.priceCents,
 			durationMonthsSnapshot: orderDurationMonths,
 			planLevelSnapshot: plan.level,
 			maxNetworksSnapshot: plan.userGroup.maxNetworks,

@@ -7,7 +7,12 @@ import {
 	getEffectiveEntitlement,
 	type EntitlementPrisma,
 } from "~/server/billing/entitlements";
-import { createPendingOrder } from "~/server/billing/orders";
+import {
+	calculatePlanPurchaseTerms,
+	calculateUpgradeAmountCents,
+	createPendingOrder,
+	MAX_BILLING_DURATION_MONTHS,
+} from "~/server/billing/orders";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 function planResult(plan: {
@@ -42,6 +47,7 @@ function orderResult(order: {
 	feeRateBpsSnapshot: number;
 	feeAmountCentsSnapshot: number;
 	planNameSnapshot: string;
+	durationMonthsSnapshot: number;
 	createdAt: Date;
 	paidAt: Date | null;
 }) {
@@ -54,6 +60,7 @@ function orderResult(order: {
 		feeRateBps: order.feeRateBpsSnapshot,
 		feeAmountCents: order.feeAmountCentsSnapshot,
 		planName: order.planNameSnapshot,
+		durationMonths: order.durationMonthsSnapshot,
 		createdAt: order.createdAt,
 		paidAt: order.paidAt,
 	};
@@ -135,35 +142,78 @@ export const billingRouter = createTRPCRouter({
 					}
 				: null;
 
+		const plansWithPricing = plans.map((plan) => {
+			const upgradeAmountCents =
+				subscription?.status === "ACTIVE" &&
+				subscription.expiresAt > now &&
+				plan.level > subscription.planLevelSnapshot
+					? calculateUpgradeAmountCents({
+							now,
+							expiresAt: subscription.expiresAt,
+							currentPriceCents: subscription.planPriceCentsSnapshot,
+							currentDurationMonths: subscription.durationMonthsSnapshot,
+							targetPriceCents: plan.priceCents,
+							targetDurationMonths: plan.durationMonths,
+						})
+					: 0;
+			return { ...planResult(plan), upgradeAmountCents };
+		});
+
 		return {
 			subscription: activeSubscription,
 			networkUsage: {
 				used: usedNetworks,
 				limit: entitlement.hasActiveEntitlement ? entitlement.maxNetworks : 0,
 			},
-			plans: plans.map(planResult),
+			plans: plansWithPricing,
 			orders: orders.map(orderResult),
 			paymentFeeRateBps: options?.alipayFeeRateBps ?? 0,
 		};
 	}),
 
 	createOrder: protectedProcedure
-		.input(z.object({ planId: z.string().cuid() }))
+		.input(
+			z.object({
+				planId: z.string().cuid(),
+				quantity: z.number().int().min(1).max(MAX_BILLING_DURATION_MONTHS).default(1),
+			}),
+		)
 		.mutation(async ({ ctx, input }) => {
 			try {
 				const order = await ctx.prisma.$transaction(async (transaction) => {
 					const lockKey = `billing-order:${ctx.session.user.id}`;
 					await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
-					const existing = await transaction.billingOrder.findFirst({
-						where: {
-							userId: ctx.session.user.id,
-							source: "SELF_SERVICE",
-							status: "PENDING",
-							expiresAt: { gt: new Date() },
-						},
-						orderBy: { createdAt: "desc" },
-					});
-					if (existing?.planId === input.planId) return existing;
+					const [plan, options, existing] = await Promise.all([
+						transaction.billingPlan.findUnique({
+							where: { id: input.planId },
+							select: { priceCents: true, durationMonths: true, isActive: true },
+						}),
+						transaction.globalOptions.findUnique({
+							where: { id: 1 },
+							select: { alipayFeeRateBps: true },
+						}),
+						transaction.billingOrder.findFirst({
+							where: {
+								userId: ctx.session.user.id,
+								source: "SELF_SERVICE",
+								status: "PENDING",
+								expiresAt: { gt: new Date() },
+							},
+							orderBy: { createdAt: "desc" },
+						}),
+					]);
+					if (!plan) throw new Error("Billing plan not found.");
+					if (!plan.isActive) throw new Error("This plan is not available.");
+					const purchaseTerms = calculatePlanPurchaseTerms(plan, input.quantity);
+					const feeRateBps = options?.alipayFeeRateBps ?? 0;
+					if (
+						existing?.planId === input.planId &&
+						existing.durationMonthsSnapshot === purchaseTerms.durationMonths &&
+						existing.baseAmountCentsSnapshot === purchaseTerms.amountCents &&
+						existing.feeRateBpsSnapshot === feeRateBps
+					) {
+						return existing;
+					}
 					if (existing) {
 						await transaction.billingOrder.updateMany({
 							where: {
@@ -174,15 +224,12 @@ export const billingRouter = createTRPCRouter({
 							data: { status: "CLOSED", closedAt: new Date() },
 						});
 					}
-					const options = await transaction.globalOptions.findUnique({
-						where: { id: 1 },
-						select: { alipayFeeRateBps: true },
-					});
 					return createPendingOrder({
 						db: transaction,
 						userId: ctx.session.user.id,
 						planId: input.planId,
-						feeRateBps: options?.alipayFeeRateBps ?? 0,
+						quantity: input.quantity,
+						feeRateBps,
 					});
 				});
 				const paymentUrl = await paymentUrlForOrder(ctx, order);
@@ -194,6 +241,7 @@ export const billingRouter = createTRPCRouter({
 					subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
 					feeRateBps: order.feeRateBpsSnapshot,
 					feeAmountCents: order.feeAmountCentsSnapshot,
+					durationMonths: order.durationMonthsSnapshot,
 					paymentUrl,
 					expiresAt: order.expiresAt,
 				};

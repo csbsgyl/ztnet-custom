@@ -3,6 +3,8 @@ import {
 	CheckCircleIcon,
 	ClockIcon,
 	ExclamationCircleIcon,
+	MinusIcon,
+	PlusIcon,
 	ReceiptPercentIcon,
 	RocketLaunchIcon,
 } from "@heroicons/react/24/outline";
@@ -79,6 +81,7 @@ const Billing = () => {
 	const locale = useLocale();
 	const [activeOrder, setActiveOrder] = useState<CreatedOrder | null>(null);
 	const [purchasingPlanId, setPurchasingPlanId] = useState<string | null>(null);
+	const [planQuantities, setPlanQuantities] = useState<Record<string, number>>({});
 	const handledSuccessOrder = useRef<string | null>(null);
 	const paymentWindowRef = useRef<Window | null>(null);
 
@@ -199,12 +202,17 @@ const Billing = () => {
 			? Math.min(100, Math.round((networkUsage.used / networkUsage.limit) * 100))
 			: 0;
 
-	const startPurchase = (planId: string) => {
+	const setPlanQuantity = (planId: string, quantity: number, maxQuantity: number) => {
+		const nextQuantity = Math.min(maxQuantity, Math.max(1, Math.floor(quantity)));
+		setPlanQuantities((current) => ({ ...current, [planId]: nextQuantity }));
+	};
+
+	const startPurchase = (planId: string, quantity: number) => {
 		paymentWindowRef.current?.close();
 		paymentWindowRef.current = window.open("about:blank", "_blank");
 		if (paymentWindowRef.current) paymentWindowRef.current.opener = null;
 		setPurchasingPlanId(planId);
-		createOrderMutation.mutate({ planId });
+		createOrderMutation.mutate({ planId, quantity });
 	};
 
 	return (
@@ -364,6 +372,10 @@ const Billing = () => {
 								) : null}
 							</div>
 							<dl className="mt-4 grid max-w-md grid-cols-[1fr_auto] gap-x-6 gap-y-1 border-t border-base-300 pt-3 text-sm">
+								<dt className="text-base-content/65">{t("payment.duration")}</dt>
+								<dd className="text-right">
+									{t("plans.months", { count: activeOrder.durationMonths })}
+								</dd>
 								<dt className="text-base-content/65">{t("payment.subtotal")}</dt>
 								<dd className="text-right">
 									{currencyFormatter.format(activeOrder.subtotalCents / 100)}
@@ -421,6 +433,14 @@ const Billing = () => {
 						{plans.map((plan) => {
 							const isCurrent = subscription?.plan.id === plan.id;
 							const isDowngrade = hasActiveSubscription && plan.rank < currentRank;
+							const maxQuantity = Math.max(1, Math.floor(120 / plan.durationMonths));
+							const quantity = Math.min(maxQuantity, planQuantities[plan.id] ?? 1);
+							const totalDurationMonths = plan.durationMonths * quantity;
+							const planSubtotalCents = plan.priceCents * quantity;
+							const orderSubtotalCents = planSubtotalCents + plan.upgradeAmountCents;
+							const estimatedFeeCents = Math.round(
+								(orderSubtotalCents * paymentFeeRateBps) / 10_000,
+							);
 							const isPurchasing =
 								createOrderMutation.isLoading && purchasingPlanId === plan.id;
 							return (
@@ -454,6 +474,98 @@ const Billing = () => {
 											count: plan.maxNetworks ?? t("usage.unlimited"),
 										})}
 									</p>
+									<div className="mt-5 border-y border-base-300 py-4">
+										<div className="flex items-center justify-between gap-4">
+											<div>
+												<p className="text-sm font-medium">{t("plans.quantity")}</p>
+												<p className="mt-0.5 text-xs text-base-content/55">
+													{t("plans.quantityUnit", {
+														months: plan.durationMonths,
+													})}
+												</p>
+											</div>
+											<div
+												className="join shrink-0"
+												role="group"
+												aria-label={t("plans.quantity")}
+											>
+												<button
+													type="button"
+													className="btn btn-square btn-sm join-item"
+													title={t("plans.decreaseQuantity")}
+													aria-label={t("plans.decreaseQuantity")}
+													disabled={quantity <= 1 || createOrderMutation.isLoading}
+													onClick={() =>
+														setPlanQuantity(plan.id, quantity - 1, maxQuantity)
+													}
+												>
+													<MinusIcon className="h-4 w-4" />
+												</button>
+												<input
+													type="number"
+													className="input input-bordered input-sm join-item w-16 appearance-none px-1 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+													min={1}
+													max={maxQuantity}
+													step={1}
+													value={quantity}
+													aria-label={t("plans.quantity")}
+													disabled={createOrderMutation.isLoading}
+													onChange={(event) => {
+														const value = Number(event.target.value);
+														if (Number.isFinite(value)) {
+															setPlanQuantity(plan.id, value, maxQuantity);
+														}
+													}}
+												/>
+												<button
+													type="button"
+													className="btn btn-square btn-sm join-item"
+													title={t("plans.increaseQuantity")}
+													aria-label={t("plans.increaseQuantity")}
+													disabled={
+														quantity >= maxQuantity || createOrderMutation.isLoading
+													}
+													onClick={() =>
+														setPlanQuantity(plan.id, quantity + 1, maxQuantity)
+													}
+												>
+													<PlusIcon className="h-4 w-4" />
+												</button>
+											</div>
+										</div>
+										<dl className="mt-4 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
+											<dt className="text-base-content/60">{t("plans.totalDuration")}</dt>
+											<dd className="text-right font-medium">
+												{t("plans.months", { count: totalDurationMonths })}
+											</dd>
+											<dt className="text-base-content/60">{t("plans.subtotal")}</dt>
+											<dd className="text-right font-medium">
+												{currencyFormatter.format(planSubtotalCents / 100)}
+											</dd>
+											{plan.upgradeAmountCents > 0 ? (
+												<>
+													<dt className="text-base-content/60">
+														{t("plans.upgradeSupplement")}
+													</dt>
+													<dd className="text-right font-medium">
+														{currencyFormatter.format(plan.upgradeAmountCents / 100)}
+													</dd>
+												</>
+											) : null}
+											{paymentFeeRateBps > 0 ? (
+												<>
+													<dt className="text-base-content/60">
+														{t("plans.estimatedTotal")}
+													</dt>
+													<dd className="text-right font-semibold">
+														{currencyFormatter.format(
+															(orderSubtotalCents + estimatedFeeCents) / 100,
+														)}
+													</dd>
+												</>
+											) : null}
+										</dl>
+									</div>
 									{paymentFeeRateBps > 0 ? (
 										<p className="mt-2 text-xs text-base-content/60">
 											{t("plans.feeNotice", {
@@ -467,7 +579,7 @@ const Billing = () => {
 										disabled={
 											isDowngrade || createOrderMutation.isLoading || !plan.isActive
 										}
-										onClick={() => startPurchase(plan.id)}
+										onClick={() => startPurchase(plan.id, quantity)}
 									>
 										{isPurchasing ? (
 											<span className="loading loading-spinner loading-sm" />
@@ -505,6 +617,7 @@ const Billing = () => {
 								<tr>
 									<th>{t("orders.number")}</th>
 									<th>{t("orders.plan")}</th>
+									<th>{t("orders.duration")}</th>
 									<th>{t("orders.amount")}</th>
 									<th>{t("orders.status")}</th>
 									<th>{t("orders.createdAt")}</th>
@@ -515,6 +628,7 @@ const Billing = () => {
 									<tr key={order.id}>
 										<td className="font-mono text-xs">{order.orderNo}</td>
 										<td>{order.planName}</td>
+										<td>{t("plans.months", { count: order.durationMonths })}</td>
 										<td>
 											<p className="font-medium">
 												{currencyFormatter.format(order.amountCents / 100)}
