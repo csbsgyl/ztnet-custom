@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { verifyContentSignature } from "~/server/billing/alipay";
+import { signContent, verifyContentSignature } from "~/server/billing/alipay";
 import {
 	DEFAULT_ALIPAY_GATEWAY,
 	ALIPAY_GATEWAYS,
@@ -27,10 +27,10 @@ const planInput = z.object({
 const alipayConfigInput = z.object({
 	enabled: z.boolean(),
 	appId: z.string().trim().max(64),
-	sellerId: z.string().trim().max(64),
 	gateway: z.enum(ALIPAY_GATEWAYS),
 	alipayPublicKey: z.string().trim().max(16_384),
 	privateKey: z.string().trim().max(16_384).optional(),
+	feeRateBps: z.number().int().min(0).max(10_000),
 });
 
 export const billingAdminRouter = createTRPCRouter({
@@ -224,6 +224,9 @@ export const billingAdminRouter = createTRPCRouter({
 				userEmail: order.user.email,
 				planName: order.planNameSnapshot,
 				amountCents: order.amountCents,
+				subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
+				feeRateBps: order.feeRateBpsSnapshot,
+				feeAmountCents: order.feeAmountCentsSnapshot,
 				status: order.status,
 				source: order.source,
 				createdAt: order.createdAt,
@@ -320,10 +323,10 @@ export const billingAdminRouter = createTRPCRouter({
 		.mutation(async ({ ctx, input }) => {
 			const current = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
 			if (input.enabled) {
-				if (!input.appId || !input.sellerId || !input.alipayPublicKey) {
+				if (!input.appId || !input.alipayPublicKey) {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
-						message: "Alipay credentials are incomplete.",
+						message: "App ID and Alipay public key are required.",
 					});
 				}
 				if (!input.privateKey && !current?.alipayPrivateKeyEncrypted) {
@@ -333,50 +336,80 @@ export const billingAdminRouter = createTRPCRouter({
 					});
 				}
 			}
-			try {
-				if (input.alipayPublicKey) {
+			if (input.alipayPublicKey) {
+				try {
 					verifyContentSignature("ztnet-key-check", "AA==", input.alipayPublicKey);
+				} catch {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message:
+							"The Alipay public key format is invalid. Use the Alipay public key, not the merchant application public key.",
+					});
 				}
-				if (input.privateKey) {
-					const { signContent } = await import("~/server/billing/alipay");
+			}
+			if (input.privateKey) {
+				try {
 					signContent("ztnet-key-check", input.privateKey);
+				} catch {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: "The merchant application private key format is invalid.",
+					});
 				}
+			}
+			let encryptedPrivateKey: string | undefined;
+			try {
+				encryptedPrivateKey = input.privateKey
+					? encryptAlipayPrivateKey(input.privateKey)
+					: undefined;
 			} catch {
 				throw new TRPCError({
-					code: "BAD_REQUEST",
-					message: "One or more Alipay keys are invalid.",
+					code: "INTERNAL_SERVER_ERROR",
+					message: "The Alipay private key could not be encrypted.",
 				});
 			}
-			const updated = await ctx.prisma.globalOptions.upsert({
-				where: { id: 1 },
-				create: {
-					id: 1,
-					alipayEnabled: input.enabled,
-					alipayAppId: input.appId || null,
-					alipaySellerId: input.sellerId || null,
-					alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
-					alipayPublicKey: input.alipayPublicKey || null,
-					alipayPrivateKeyEncrypted: input.privateKey
-						? encryptAlipayPrivateKey(input.privateKey)
-						: null,
-				},
-				update: {
-					alipayEnabled: input.enabled,
-					alipayAppId: input.appId || null,
-					alipaySellerId: input.sellerId || null,
-					alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
-					alipayPublicKey: input.alipayPublicKey || null,
-					...(input.privateKey
-						? { alipayPrivateKeyEncrypted: encryptAlipayPrivateKey(input.privateKey) }
-						: {}),
-				},
-			});
-			await ctx.prisma.activityLog.create({
-				data: {
-					performedById: ctx.session.user.id,
-					action: `Updated Alipay billing configuration (enabled=${updated.alipayEnabled})`,
-				},
-			});
+			const updated = await ctx.prisma
+				.$transaction(async (transaction) => {
+					const saved = await transaction.globalOptions.upsert({
+						where: { id: 1 },
+						create: {
+							id: 1,
+							alipayEnabled: input.enabled,
+							alipayAppId: input.appId || null,
+							alipaySellerId: null,
+							alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
+							alipayPublicKey: input.alipayPublicKey || null,
+							alipayPrivateKeyEncrypted: encryptedPrivateKey ?? null,
+							alipayFeeRateBps: input.feeRateBps,
+						},
+						update: {
+							alipayEnabled: input.enabled,
+							alipayAppId: input.appId || null,
+							alipaySellerId: null,
+							alipayGateway: input.gateway || DEFAULT_ALIPAY_GATEWAY,
+							alipayPublicKey: input.alipayPublicKey || null,
+							alipayFeeRateBps: input.feeRateBps,
+							...(encryptedPrivateKey
+								? { alipayPrivateKeyEncrypted: encryptedPrivateKey }
+								: {}),
+						},
+					});
+					await transaction.activityLog.create({
+						data: {
+							performedById: ctx.session.user.id,
+							action: `Updated Alipay billing configuration (enabled=${saved.alipayEnabled})`,
+						},
+					});
+					return saved;
+				})
+				.catch((error) => {
+					console.error("Could not save Alipay configuration:", error);
+					throw new TRPCError({
+						code: "INTERNAL_SERVER_ERROR",
+						message:
+							"Could not save Alipay configuration. Make sure the latest database migration has been applied.",
+					});
+				});
 			return getPublicAlipayConfig(updated);
 		}),
 });

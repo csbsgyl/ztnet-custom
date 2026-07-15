@@ -1,5 +1,6 @@
 import {
 	addBillingMonths,
+	calculateFeeAmountCents,
 	calculateUpgradeAmountCents,
 	createPendingOrder,
 	type BillingDatabase,
@@ -178,6 +179,64 @@ describe("upgrade price calculation", () => {
 				amountCents: 2_500,
 				upgradeAmountCentsSnapshot: 0,
 				planLevelSnapshot: 2,
+			}),
+		});
+	});
+});
+
+describe("payment fee calculation", () => {
+	test.each([
+		[10_000, 60, 60],
+		[9_900, 60, 59],
+		[101, 100, 1],
+		[49, 100, 0],
+		[10_000, 0, 0],
+	])("rounds %i cents at %i basis points to %i cents", (amount, rate, fee) => {
+		expect(calculateFeeAmountCents(amount, rate)).toBe(fee);
+	});
+
+	test("adds and snapshots the fee only for self-service orders", async () => {
+		const create = jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+			id: "order-1",
+			...data,
+		}));
+		const db = {
+			user: {
+				findUnique: jest.fn(async () => ({
+					id: "user-1",
+					isActive: true,
+					role: "USER",
+				})),
+			},
+			billingPlan: {
+				findUnique: jest.fn(async () => ({
+					id: "plan-pro",
+					name: "Pro",
+					isActive: true,
+					level: 1,
+					priceCents: 9_900,
+					durationMonths: 1,
+					userGroupId: 20,
+					userGroup: { maxNetworks: 10 },
+				})),
+			},
+			subscription: { findUnique: jest.fn(async () => null) },
+			billingOrder: { create },
+		} as unknown as BillingDatabase;
+
+		await createPendingOrder({
+			db,
+			userId: "user-1",
+			planId: "plan-pro",
+			feeRateBps: 60,
+		});
+
+		expect(create).toHaveBeenCalledWith({
+			data: expect.objectContaining({
+				amountCents: 9_959,
+				baseAmountCentsSnapshot: 9_900,
+				feeRateBpsSnapshot: 60,
+				feeAmountCentsSnapshot: 59,
 			}),
 		});
 	});

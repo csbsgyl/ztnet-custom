@@ -83,6 +83,7 @@ model GlobalOptions {
   alipayGateway                      String  @default("https://openapi.alipay.com/gateway.do")
   alipayPrivateKeyEncrypted          String? @db.Text
   alipayPublicKey                    String? @db.Text
+  alipayFeeRateBps                   Int     @default(0)
   // Notifications
   userRegistrationNotification       Boolean @default(false)
   // Welcome message
@@ -316,6 +317,8 @@ model BillingOrder {
   userGroupIdSnapshot    Int
   baseAmountCentsSnapshot    Int
   upgradeAmountCentsSnapshot Int                @default(0)
+  feeRateBpsSnapshot         Int                @default(0)
+  feeAmountCentsSnapshot     Int                @default(0)
   adminNote                  String?            @db.Text
   expiresAt              DateTime
   paidAt                 DateTime?

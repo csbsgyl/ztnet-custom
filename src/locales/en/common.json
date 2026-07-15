@@ -543,7 +543,10 @@
 			"live": "Live",
 			"openAlipay": "Open Alipay",
 			"dismiss": "Dismiss",
-			"popupBlocked": "The payment window was blocked. Use the Open Alipay link to continue."
+			"popupBlocked": "The payment window was blocked. Use the Open Alipay link to continue.",
+			"subtotal": "Subtotal",
+			"fee": "Payment fee ({rate}%)",
+			"total": "Amount due"
 		},
 		"return": {
 			"loading": "Loading the order status...",
@@ -581,6 +584,7 @@
 			"current": "Current plan",
 			"months": "{count, plural, one {# month} other {# months}}",
 			"networkLimit": "Up to {count} personal networks",
+			"feeNotice": "A {rate}% payment fee is added at checkout.",
 			"buy": "Buy now",
 			"renew": "Renew plan",
 			"upgrade": "Upgrade plan",
@@ -593,6 +597,7 @@
 			"number": "Order number",
 			"plan": "Plan",
 			"amount": "Amount",
+			"feeIncluded": "Includes {fee} fee ({rate}%)",
 			"status": "Status",
 			"createdAt": "Created"
 		},
@@ -633,7 +638,8 @@
 			"validation": {
 				"plan": "Complete the plan fields with valid values.",
 				"renewal": "Select a user and plan and enter valid renewal values.",
-				"alipay": "Complete the required Alipay credentials before enabling payments."
+				"alipay": "Complete the required Alipay credentials before enabling payments.",
+				"alipayFee": "Enter a payment fee from 0 to 100 with no more than two decimal places."
 			},
 			"metrics": {
 				"activeSubscriptions": "Active subscriptions",
@@ -709,6 +715,7 @@
 				"user": "User",
 				"plan": "Plan",
 				"amount": "Amount",
+				"feeIncluded": "Includes {fee} fee ({rate}%)",
 				"status": "Status",
 				"createdAt": "Created",
 				"tradeNo": "Alipay transaction",
@@ -721,16 +728,19 @@
 				"description": "Configure RSA2 credentials for Alipay computer website payments.",
 				"enable": "Enable Alipay payments",
 				"enableDescription": "Users can create payable orders only while this integration is enabled.",
-				"appId": "Application ID",
+				"appId": "App ID",
 				"sellerId": "Seller ID",
 				"gateway": "Alipay gateway",
 				"gatewayHelp": "Use an HTTPS Alipay gateway. The sandbox switch updates this value automatically.",
 				"publicKey": "Alipay public key",
+				"publicKeyHelp": "Paste the Alipay public key from Alipay Open Platform, not the merchant application public key.",
 				"privateKey": "Merchant application private key",
 				"privateKeyConfigured": "Configured",
 				"privateKeyKeep": "Leave empty to keep the existing private key",
 				"privateKeyRequired": "Paste the merchant application private key",
-				"privateKeyHelp": "The existing private key is never returned to the browser. Leave this field empty to retain it.",
+				"privateKeyHelp": "The existing private key is never returned to the browser. Raw Base64 and standard PKCS#8 or PKCS#1 PEM keys are accepted.",
+				"feeRate": "Payment fee rate",
+				"feeRateHelp": "Applied only to self-service Alipay orders and rounded to the nearest cent. Manual renewals are not charged.",
 				"sandbox": "Use Alipay sandbox",
 				"sandboxDescription": "Enable only for Alipay sandbox credentials and test transactions.",
 				"notifyUrl": "Asynchronous notification URL",

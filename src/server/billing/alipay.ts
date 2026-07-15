@@ -95,7 +95,7 @@ export interface AlipayTradeQueryResponse {
 
 export interface AlipayNotificationExpected {
 	appId: string;
-	sellerId: string;
+	sellerId?: string | null;
 	merchantOrderNo: string;
 	amountCents: number;
 }
@@ -965,7 +965,7 @@ function verifyParsedNotification(
 	expected: AlipayNotificationExpected,
 ): VerifiedAlipayNotification {
 	assertIdentifier(expected.appId, "expected appId");
-	assertIdentifier(expected.sellerId, "expected sellerId");
+	if (expected.sellerId) assertIdentifier(expected.sellerId, "expected sellerId");
 	assertOutTradeNo(expected.merchantOrderNo);
 	assertAmountCents(expected.amountCents);
 
@@ -992,7 +992,9 @@ function verifyParsedNotification(
 	const outTradeNo = requireNotificationParameter(parameters, "out_trade_no");
 	const tradeNo = requireNotificationParameter(parameters, "trade_no");
 	assertExpectedValue(appId, expected.appId, "Alipay app_id");
-	assertExpectedValue(sellerId, expected.sellerId, "Alipay seller_id");
+	if (expected.sellerId) {
+		assertExpectedValue(sellerId, expected.sellerId, "Alipay seller_id");
+	}
 	assertExpectedValue(outTradeNo, expected.merchantOrderNo, "Alipay out_trade_no");
 	if (parameters.auth_app_id !== undefined) {
 		assertExpectedValue(parameters.auth_app_id, expected.appId, "Alipay auth_app_id");

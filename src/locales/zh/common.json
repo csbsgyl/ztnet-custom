@@ -543,7 +543,10 @@
 			"live": "实时",
 			"openAlipay": "打开支付宝",
 			"dismiss": "关闭",
-			"popupBlocked": "支付窗口被浏览器拦截，请点击“打开支付宝”继续。"
+			"popupBlocked": "支付窗口被浏览器拦截，请点击“打开支付宝”继续。",
+			"subtotal": "订单小计",
+			"fee": "支付手续费（{rate}%）",
+			"total": "应付金额"
 		},
 		"return": {
 			"loading": "正在加载订单状态...",
@@ -581,6 +584,7 @@
 			"current": "当前套餐",
 			"months": "{count} 个月",
 			"networkLimit": "最多创建 {count} 个个人网络",
+			"feeNotice": "结算时另收 {rate}% 支付手续费。",
 			"buy": "立即购买",
 			"renew": "续费当前套餐",
 			"upgrade": "升级套餐",
@@ -593,6 +597,7 @@
 			"number": "订单号",
 			"plan": "套餐",
 			"amount": "金额",
+			"feeIncluded": "含手续费 {fee}（{rate}%）",
 			"status": "状态",
 			"createdAt": "创建时间"
 		},
@@ -633,7 +638,8 @@
 			"validation": {
 				"plan": "请完整填写套餐信息并使用有效数值。",
 				"renewal": "请选择用户和套餐，并填写有效的续费信息。",
-				"alipay": "启用支付前请完整填写支付宝必要凭据。"
+				"alipay": "启用支付前请完整填写支付宝必要凭据。",
+				"alipayFee": "手续费请输入 0 到 100，最多保留两位小数。"
 			},
 			"metrics": {
 				"activeSubscriptions": "生效订阅",
@@ -709,6 +715,7 @@
 				"user": "用户",
 				"plan": "套餐",
 				"amount": "金额",
+				"feeIncluded": "含手续费 {fee}（{rate}%）",
 				"status": "状态",
 				"createdAt": "创建时间",
 				"tradeNo": "支付宝交易号",
@@ -718,19 +725,22 @@
 			},
 			"alipay": {
 				"title": "支付宝配置",
-				"description": "配置支付宝电脑网站支付所需的 RSA2 凭据。",
+				"description": "配置支付宝电脑网站支付所需的 App ID、应用私钥和支付宝公钥。",
 				"enable": "启用支付宝支付",
 				"enableDescription": "只有启用后，用户才能创建需要支付的订单。",
-				"appId": "应用 ID",
+				"appId": "App ID",
 				"sellerId": "商户 Seller ID",
 				"gateway": "支付宝网关",
 				"gatewayHelp": "请使用支付宝 HTTPS 网关；切换沙箱时会自动更新此地址。",
 				"publicKey": "支付宝公钥",
+				"publicKeyHelp": "请填写支付宝开放平台提供的“支付宝公钥”，不要填写商户应用公钥。",
 				"privateKey": "商户应用私钥",
 				"privateKeyConfigured": "已配置",
 				"privateKeyKeep": "留空将保留现有私钥",
 				"privateKeyRequired": "请粘贴商户应用私钥",
-				"privateKeyHelp": "现有私钥永远不会返回浏览器；此处留空即可保留。",
+				"privateKeyHelp": "现有私钥不会返回浏览器；支持裸 Base64 及标准 PKCS#8、PKCS#1 PEM 私钥。留空将保留原私钥。",
+				"feeRate": "支付手续费率",
+				"feeRateHelp": "仅对用户自助支付宝订单收取，按分四舍五入；管理员手工续费不收取。",
 				"sandbox": "使用支付宝沙箱",
 				"sandboxDescription": "仅在使用支付宝沙箱凭据和测试交易时启用。",
 				"notifyUrl": "异步通知地址",

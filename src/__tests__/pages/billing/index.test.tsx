@@ -28,6 +28,10 @@ type MutationOptions = {
 		orderId: string;
 		orderNo: string;
 		status: string;
+		amountCents: number;
+		subtotalCents: number;
+		feeRateBps: number;
+		feeAmountCents: number;
 		paymentUrl: string;
 		expiresAt: string;
 	}) => void;
@@ -84,6 +88,7 @@ describe("Billing page", () => {
 					},
 				],
 				orders: [],
+				paymentFeeRateBps: 60,
 			},
 			isLoading: false,
 			isFetching: false,
@@ -135,12 +140,18 @@ describe("Billing page", () => {
 				orderId: "order-1",
 				orderNo: "ZT202607140001",
 				status: "PENDING",
+				amountCents: 9959,
+				subtotalCents: 9900,
+				feeRateBps: 60,
+				feeAmountCents: 59,
 				paymentUrl: "https://alipay.example/pay",
 				expiresAt: "2026-07-14T10:15:00Z",
 			}),
 		);
 
 		expect(replace).toHaveBeenCalledWith("https://alipay.example/pay");
+		expect(screen.getByText("Payment fee (0.60%)")).toBeInTheDocument();
+		expect(screen.getByText("CN¥0.59")).toBeInTheDocument();
 		expect(await screen.findByText("Confirming payment")).toBeInTheDocument();
 		expect(screen.queryByText("Plan activated")).not.toBeInTheDocument();
 		expect(statusOptions.refetchInterval({ status: "PAID" })).toBe(2_000);

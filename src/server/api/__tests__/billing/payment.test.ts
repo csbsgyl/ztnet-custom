@@ -92,6 +92,7 @@ function runtimeConfig(): AlipayRuntimeConfig {
 		gateway: "https://alipay.example.test/gateway.do",
 		privateKey: merchantPrivateKey,
 		alipayPublicKey,
+		feeRateBps: 0,
 	};
 }
 

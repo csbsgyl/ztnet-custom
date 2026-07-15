@@ -9,7 +9,9 @@ import {
 	canonicalizeParameters,
 	buildPagePayUrl,
 	type AlipayErrorCode,
+	signContent,
 	verifyAlipayNotification,
+	verifyContentSignature,
 } from "~/server/billing/alipay";
 
 const APP_ID = "2026071400000001";
@@ -84,6 +86,32 @@ function expectProtocolError(run: () => unknown, code: AlipayErrorCode): void {
 }
 
 describe("Alipay RSA2 protocol", () => {
+	test("accepts the RSA key encodings commonly exported by Alipay tools", () => {
+		const privateKeys = [
+			privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+			privateKey.export({ format: "pem", type: "pkcs1" }).toString(),
+			privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"),
+			privateKey.export({ format: "der", type: "pkcs1" }).toString("base64"),
+		];
+		const publicKeys = [
+			publicKey.export({ format: "pem", type: "spki" }).toString(),
+			publicKey.export({ format: "pem", type: "pkcs1" }).toString(),
+			publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+			publicKey.export({ format: "der", type: "pkcs1" }).toString("base64"),
+		];
+
+		for (const merchantPrivateKey of privateKeys) {
+			const signature = signContent("ztnet-key-check", merchantPrivateKey);
+			expect(verifyContentSignature("ztnet-key-check", signature, publicKey)).toBe(true);
+		}
+		for (const alipayPublicKey of publicKeys) {
+			const signature = createRsa2Signature("ztnet-key-check");
+			expect(verifyContentSignature("ztnet-key-check", signature, alipayPublicKey)).toBe(
+				true,
+			);
+		}
+	});
+
 	test("builds a page-pay URL whose parameters have a real RSA2 signature", () => {
 		const paymentUrl = buildPagePayUrl({
 			appId: APP_ID,

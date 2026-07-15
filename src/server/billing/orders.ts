@@ -28,6 +28,23 @@ export function alipayAmountToCents(amount: string): number {
 	return cents;
 }
 
+export function calculateFeeAmountCents(amountCents: number, feeRateBps: number): number {
+	if (!Number.isSafeInteger(amountCents) || amountCents < 0) {
+		throw new Error("Fee base amount must be a non-negative integer in cents.");
+	}
+	if (!Number.isInteger(feeRateBps) || feeRateBps < 0 || feeRateBps > 10_000) {
+		throw new Error("Payment fee rate must be between 0% and 100%.");
+	}
+	if (amountCents === 0 || feeRateBps === 0) return 0;
+
+	const numerator = BigInt(amountCents) * BigInt(feeRateBps);
+	const fee = (numerator + BigInt(5_000)) / BigInt(10_000);
+	if (fee > BigInt(Number.MAX_SAFE_INTEGER)) {
+		throw new Error("Calculated payment fee is too large.");
+	}
+	return Number(fee);
+}
+
 export function addBillingMonths(date: Date, months: number): Date {
 	if (!Number.isInteger(months) || months < 1 || months > 120) {
 		throw new Error("Billing duration must be between 1 and 120 months.");
@@ -96,6 +113,7 @@ export async function createPendingOrder({
 	source = "SELF_SERVICE",
 	durationMonths,
 	amountCents,
+	feeRateBps = 0,
 	adminNote,
 	now = new Date(),
 }: {
@@ -105,6 +123,7 @@ export async function createPendingOrder({
 	source?: BillingOrderSource;
 	durationMonths?: number;
 	amountCents?: number;
+	feeRateBps?: number;
 	adminNote?: string | null;
 	now?: Date;
 }) {
@@ -174,7 +193,13 @@ export async function createPendingOrder({
 	if (!Number.isSafeInteger(baseAmountCents) || baseAmountCents < 0) {
 		throw new Error("Order amount must be a non-negative integer in cents.");
 	}
-	const totalAmountCents = baseAmountCents + upgradeAmountCents;
+	const subtotalAmountCents = baseAmountCents + upgradeAmountCents;
+	if (!Number.isSafeInteger(subtotalAmountCents)) {
+		throw new Error("Calculated order subtotal is too large.");
+	}
+	const appliedFeeRateBps = source === "SELF_SERVICE" ? feeRateBps : 0;
+	const feeAmountCents = calculateFeeAmountCents(subtotalAmountCents, appliedFeeRateBps);
+	const totalAmountCents = subtotalAmountCents + feeAmountCents;
 	if (!Number.isSafeInteger(totalAmountCents) || totalAmountCents < 1) {
 		if (source === "SELF_SERVICE") {
 			throw new Error("Self-service orders must have a positive amount.");
@@ -199,6 +224,8 @@ export async function createPendingOrder({
 			userGroupIdSnapshot: plan.userGroupId,
 			baseAmountCentsSnapshot: baseAmountCents,
 			upgradeAmountCentsSnapshot: upgradeAmountCents,
+			feeRateBpsSnapshot: appliedFeeRateBps,
+			feeAmountCentsSnapshot: feeAmountCents,
 			adminNote: source === "MANUAL_ADMIN" ? adminNote?.trim() || null : null,
 			expiresAt: new Date(now.getTime() + ORDER_TTL_MS),
 		},

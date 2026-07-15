@@ -38,6 +38,10 @@ function orderResult(order: {
 	merchantOrderNo: string;
 	status: string;
 	amountCents: number;
+	baseAmountCentsSnapshot: number;
+	upgradeAmountCentsSnapshot: number;
+	feeRateBpsSnapshot: number;
+	feeAmountCentsSnapshot: number;
 	planNameSnapshot: string;
 	createdAt: Date;
 	paidAt: Date | null;
@@ -47,6 +51,9 @@ function orderResult(order: {
 		orderNo: order.merchantOrderNo,
 		status: order.status,
 		amountCents: order.amountCents,
+		subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
+		feeRateBps: order.feeRateBpsSnapshot,
+		feeAmountCents: order.feeAmountCentsSnapshot,
 		planName: order.planNameSnapshot,
 		createdAt: order.createdAt,
 		paidAt: order.paidAt,
@@ -87,29 +94,36 @@ export const billingRouter = createTRPCRouter({
 			});
 		}
 		const now = new Date();
-		const [plans, subscription, orders, usedNetworks, entitlement] = await Promise.all([
-			ctx.prisma.billingPlan.findMany({
-				where: { isActive: true },
-				include: { userGroup: { select: { maxNetworks: true } } },
-				orderBy: [{ sortOrder: "asc" }, { level: "asc" }, { priceCents: "asc" }],
-			}),
-			ctx.prisma.subscription.findUnique({
-				where: { userId: ctx.session.user.id },
-				include: { plan: { include: { userGroup: { select: { maxNetworks: true } } } } },
-			}),
-			ctx.prisma.billingOrder.findMany({
-				where: { userId: ctx.session.user.id },
-				orderBy: { createdAt: "desc" },
-				take: 50,
-			}),
-			ctx.prisma.network.count({
-				where: { authorId: ctx.session.user.id, organizationId: null },
-			}),
-			getEffectiveEntitlement(
-				{ prisma: ctx.prisma as unknown as EntitlementPrisma },
-				ctx.session.user.id,
-			),
-		]);
+		const [plans, subscription, orders, usedNetworks, entitlement, options] =
+			await Promise.all([
+				ctx.prisma.billingPlan.findMany({
+					where: { isActive: true },
+					include: { userGroup: { select: { maxNetworks: true } } },
+					orderBy: [{ sortOrder: "asc" }, { level: "asc" }, { priceCents: "asc" }],
+				}),
+				ctx.prisma.subscription.findUnique({
+					where: { userId: ctx.session.user.id },
+					include: {
+						plan: { include: { userGroup: { select: { maxNetworks: true } } } },
+					},
+				}),
+				ctx.prisma.billingOrder.findMany({
+					where: { userId: ctx.session.user.id },
+					orderBy: { createdAt: "desc" },
+					take: 50,
+				}),
+				ctx.prisma.network.count({
+					where: { authorId: ctx.session.user.id, organizationId: null },
+				}),
+				getEffectiveEntitlement(
+					{ prisma: ctx.prisma as unknown as EntitlementPrisma },
+					ctx.session.user.id,
+				),
+				ctx.prisma.globalOptions.findUnique({
+					where: { id: 1 },
+					select: { alipayFeeRateBps: true },
+				}),
+			]);
 
 		const activeSubscription =
 			subscription?.status === "ACTIVE" && subscription.expiresAt > now
@@ -130,6 +144,7 @@ export const billingRouter = createTRPCRouter({
 			},
 			plans: plans.map(planResult),
 			orders: orders.map(orderResult),
+			paymentFeeRateBps: options?.alipayFeeRateBps ?? 0,
 		};
 	}),
 
@@ -160,10 +175,15 @@ export const billingRouter = createTRPCRouter({
 							data: { status: "CLOSED", closedAt: new Date() },
 						});
 					}
+					const options = await transaction.globalOptions.findUnique({
+						where: { id: 1 },
+						select: { alipayFeeRateBps: true },
+					});
 					return createPendingOrder({
 						db: transaction,
 						userId: ctx.session.user.id,
 						planId: input.planId,
+						feeRateBps: options?.alipayFeeRateBps ?? 0,
 					});
 				});
 				const paymentUrl = await paymentUrlForOrder(ctx, order);
@@ -171,6 +191,10 @@ export const billingRouter = createTRPCRouter({
 					orderId: order.id,
 					orderNo: order.merchantOrderNo,
 					status: order.status,
+					amountCents: order.amountCents,
+					subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
+					feeRateBps: order.feeRateBpsSnapshot,
+					feeAmountCents: order.feeAmountCentsSnapshot,
 					paymentUrl,
 					expiresAt: order.expiresAt,
 				};

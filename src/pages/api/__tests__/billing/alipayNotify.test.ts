@@ -85,6 +85,7 @@ describe("Alipay notification API", () => {
 			gateway: "https://openapi.alipay.com/gateway.do",
 			privateKey: "merchant-private-key",
 			alipayPublicKey: "alipay-public-key",
+			feeRateBps: 0,
 		});
 		jest.mocked(verifyAlipayNotification).mockReturnValue({
 			payload: {

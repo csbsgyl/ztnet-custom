@@ -135,6 +135,9 @@ describe("Billing administration page", () => {
 						userEmail: "alice@example.com",
 						planName: "Pro",
 						amountCents: 9900,
+						subtotalCents: 9900,
+						feeRateBps: 0,
+						feeAmountCents: 0,
 						status: "PENDING",
 						source: "SELF_SERVICE",
 						createdAt: "2026-07-14T10:00:00Z",
@@ -146,6 +149,9 @@ describe("Billing administration page", () => {
 						userEmail: "bob@example.com",
 						planName: "Pro",
 						amountCents: 9900,
+						subtotalCents: 9900,
+						feeRateBps: 0,
+						feeAmountCents: 0,
 						status: "PAID",
 						source: "SELF_SERVICE",
 						createdAt: "2026-07-14T10:01:00Z",
@@ -157,6 +163,9 @@ describe("Billing administration page", () => {
 						userEmail: "carol@example.com",
 						planName: "Pro",
 						amountCents: 9900,
+						subtotalCents: 9900,
+						feeRateBps: 0,
+						feeAmountCents: 0,
 						status: "FULFILLED",
 						source: "SELF_SERVICE",
 						createdAt: "2026-07-14T10:02:00Z",
@@ -173,9 +182,9 @@ describe("Billing administration page", () => {
 			data: {
 				enabled: true,
 				appId: "2026000000001",
-				sellerId: "2088000000001",
 				gateway: "https://openapi.alipay.com/gateway.do",
 				alipayPublicKey: "PUBLIC_KEY",
+				feeRateBps: 60,
 				hasPrivateKey: true,
 				notifyUrl: "https://ztnet.example/api/billing/alipay/notify",
 				returnUrl: "https://ztnet.example/billing/return",
@@ -270,10 +279,11 @@ describe("Billing administration page", () => {
 		expect(saveAlipayConfig).toHaveBeenLastCalledWith({
 			enabled: true,
 			appId: "2026000000001",
-			sellerId: "2088000000001",
 			gateway: "https://openapi.alipay.com/gateway.do",
 			alipayPublicKey: "PUBLIC_KEY",
+			feeRateBps: 60,
 		});
+		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("sellerId");
 		expect(saveAlipayConfig.mock.calls.at(-1)?.[0]).not.toHaveProperty("privateKey");
 
 		await user.type(privateKeyInput, "NEW_PRIVATE_KEY");

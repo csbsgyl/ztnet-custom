@@ -191,7 +191,7 @@ const Billing = () => {
 		);
 	}
 
-	const { subscription, networkUsage, plans, orders } = overview.data;
+	const { subscription, networkUsage, plans, orders, paymentFeeRateBps } = overview.data;
 	const hasActiveSubscription = subscription?.status.toUpperCase() === "ACTIVE";
 	const currentRank = hasActiveSubscription ? (subscription?.plan.rank ?? -1) : -1;
 	const usagePercent =
@@ -363,6 +363,24 @@ const Billing = () => {
 									</button>
 								) : null}
 							</div>
+							<dl className="mt-4 grid max-w-md grid-cols-[1fr_auto] gap-x-6 gap-y-1 border-t border-base-300 pt-3 text-sm">
+								<dt className="text-base-content/65">{t("payment.subtotal")}</dt>
+								<dd className="text-right">
+									{currencyFormatter.format(activeOrder.subtotalCents / 100)}
+								</dd>
+								<dt className="text-base-content/65">
+									{t("payment.fee", {
+										rate: (activeOrder.feeRateBps / 100).toFixed(2),
+									})}
+								</dt>
+								<dd className="text-right">
+									{currencyFormatter.format(activeOrder.feeAmountCents / 100)}
+								</dd>
+								<dt className="font-medium">{t("payment.total")}</dt>
+								<dd className="text-right font-semibold">
+									{currencyFormatter.format(activeOrder.amountCents / 100)}
+								</dd>
+							</dl>
 							{paymentPhase === "failed" && orderStatus.data?.message ? (
 								<p className="mt-3 text-sm text-error">{orderStatus.data.message}</p>
 							) : null}
@@ -436,6 +454,13 @@ const Billing = () => {
 											count: plan.maxNetworks ?? t("usage.unlimited"),
 										})}
 									</p>
+									{paymentFeeRateBps > 0 ? (
+										<p className="mt-2 text-xs text-base-content/60">
+											{t("plans.feeNotice", {
+												rate: (paymentFeeRateBps / 100).toFixed(2),
+											})}
+										</p>
+									) : null}
 									<button
 										type="button"
 										className="btn btn-primary mt-5 w-full"
@@ -490,7 +515,19 @@ const Billing = () => {
 									<tr key={order.id}>
 										<td className="font-mono text-xs">{order.orderNo}</td>
 										<td>{order.planName}</td>
-										<td>{currencyFormatter.format(order.amountCents / 100)}</td>
+										<td>
+											<p className="font-medium">
+												{currencyFormatter.format(order.amountCents / 100)}
+											</p>
+											{order.feeAmountCents > 0 ? (
+												<p className="text-xs text-base-content/55">
+													{t("orders.feeIncluded", {
+														fee: currencyFormatter.format(order.feeAmountCents / 100),
+														rate: (order.feeRateBps / 100).toFixed(2),
+													})}
+												</p>
+											) : null}
+										</td>
 										<td>
 											<span
 												className={`badge badge-outline ${getStatusBadgeClass(order.status)}`}

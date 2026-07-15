@@ -55,10 +55,10 @@ type AlipayGateway = typeof ALIPAY_PRODUCTION_GATEWAY | typeof ALIPAY_SANDBOX_GA
 type AlipayDraft = {
 	enabled: boolean;
 	appId: string;
-	sellerId: string;
 	gateway: AlipayGateway;
 	alipayPublicKey: string;
 	privateKey: string;
+	feeRatePercent: string;
 };
 
 const ALIPAY_PRODUCTION_GATEWAY = "https://openapi.alipay.com/gateway.do";
@@ -85,10 +85,10 @@ const EMPTY_RENEWAL: RenewalDraft = {
 const EMPTY_ALIPAY: AlipayDraft = {
 	enabled: false,
 	appId: "",
-	sellerId: "",
 	gateway: ALIPAY_PRODUCTION_GATEWAY,
 	alipayPublicKey: "",
 	privateKey: "",
+	feeRatePercent: "0",
 };
 
 const AdminBilling = () => {
@@ -191,10 +191,10 @@ const AdminBilling = () => {
 		setAlipayDraft({
 			enabled: alipayConfig.data.enabled,
 			appId: alipayConfig.data.appId,
-			sellerId: alipayConfig.data.sellerId,
 			gateway,
 			alipayPublicKey: alipayConfig.data.alipayPublicKey,
 			privateKey: "",
+			feeRatePercent: String(alipayConfig.data.feeRateBps / 100),
 		});
 	}, [alipayConfig.data]);
 
@@ -344,10 +344,15 @@ const AdminBilling = () => {
 
 	const submitAlipay = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
+		const feeRateText = alipayDraft.feeRatePercent.trim();
+		if (!/^(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)$/.test(feeRateText)) {
+			toast.error(t("validation.alipayFee"));
+			return;
+		}
+		const feeRateBps = Math.round(Number(feeRateText) * 100);
 		if (
 			alipayDraft.enabled &&
 			(!alipayDraft.appId.trim() ||
-				!alipayDraft.sellerId.trim() ||
 				!alipayDraft.alipayPublicKey.trim() ||
 				(!alipayConfig.data?.hasPrivateKey && !alipayDraft.privateKey.trim()))
 		) {
@@ -358,9 +363,9 @@ const AdminBilling = () => {
 		const baseConfig: SaveAlipayConfigInput = {
 			enabled: alipayDraft.enabled,
 			appId: alipayDraft.appId.trim(),
-			sellerId: alipayDraft.sellerId.trim(),
 			gateway: alipayDraft.gateway,
 			alipayPublicKey: alipayDraft.alipayPublicKey.trim(),
+			feeRateBps,
 		};
 		const privateKey = alipayDraft.privateKey.trim();
 		saveAlipayMutation.mutate(privateKey ? { ...baseConfig, privateKey } : baseConfig);
@@ -1039,7 +1044,19 @@ const AdminBilling = () => {
 												<td className="font-mono text-xs">{order.merchantOrderNo}</td>
 												<td>{order.userEmail}</td>
 												<td>{order.planName}</td>
-												<td>{currencyFormatter.format(order.amountCents / 100)}</td>
+												<td>
+													<p className="font-medium">
+														{currencyFormatter.format(order.amountCents / 100)}
+													</p>
+													{order.feeAmountCents > 0 ? (
+														<p className="text-xs text-base-content/55">
+															{t("orders.feeIncluded", {
+																fee: currencyFormatter.format(order.feeAmountCents / 100),
+																rate: (order.feeRateBps / 100).toFixed(2),
+															})}
+														</p>
+													) : null}
+												</td>
 												<td>
 													<span className="badge badge-outline">
 														{billingT(`status.${order.status.toLowerCase()}`)}
@@ -1126,7 +1143,7 @@ const AdminBilling = () => {
 								/>
 							</div>
 							<div className="grid gap-4 md:grid-cols-2">
-								<label className="form-control w-full">
+								<label className="form-control w-full md:col-span-2">
 									<span className="label-text mb-2">{t("alipay.appId")}</span>
 									<input
 										className="input input-bordered w-full font-mono"
@@ -1135,44 +1152,6 @@ const AdminBilling = () => {
 											setAlipayDraft((current) => ({
 												...current,
 												appId: event.target.value,
-											}))
-										}
-									/>
-								</label>
-								<label className="form-control w-full">
-									<span className="label-text mb-2">{t("alipay.sellerId")}</span>
-									<input
-										className="input input-bordered w-full font-mono"
-										value={alipayDraft.sellerId}
-										onChange={(event) =>
-											setAlipayDraft((current) => ({
-												...current,
-												sellerId: event.target.value,
-											}))
-										}
-									/>
-								</label>
-								<label className="form-control w-full md:col-span-2">
-									<span className="label-text mb-2">{t("alipay.gateway")}</span>
-									<input
-										type="url"
-										className="input input-bordered w-full font-mono text-sm"
-										value={alipayDraft.gateway}
-										readOnly
-									/>
-									<span className="mt-2 text-xs text-base-content/60">
-										{t("alipay.gatewayHelp")}
-									</span>
-								</label>
-								<label className="form-control w-full md:col-span-2">
-									<span className="label-text mb-2">{t("alipay.publicKey")}</span>
-									<textarea
-										className="textarea textarea-bordered min-h-32 w-full font-mono text-xs"
-										value={alipayDraft.alipayPublicKey}
-										onChange={(event) =>
-											setAlipayDraft((current) => ({
-												...current,
-												alipayPublicKey: event.target.value,
 											}))
 										}
 									/>
@@ -1211,6 +1190,64 @@ const AdminBilling = () => {
 										className="mt-2 text-xs text-base-content/60"
 									>
 										{t("alipay.privateKeyHelp")}
+									</span>
+								</label>
+								<label className="form-control w-full md:col-span-2">
+									<span className="label-text mb-2">{t("alipay.publicKey")}</span>
+									<textarea
+										className="textarea textarea-bordered min-h-32 w-full font-mono text-xs"
+										spellCheck={false}
+										value={alipayDraft.alipayPublicKey}
+										onChange={(event) =>
+											setAlipayDraft((current) => ({
+												...current,
+												alipayPublicKey: event.target.value,
+											}))
+										}
+										aria-describedby="alipay-public-key-help"
+									/>
+									<span
+										id="alipay-public-key-help"
+										className="mt-2 text-xs text-base-content/60"
+									>
+										{t("alipay.publicKeyHelp")}
+									</span>
+								</label>
+								<label className="form-control w-full">
+									<span className="label-text mb-2">{t("alipay.feeRate")}</span>
+									<div className="join w-full">
+										<input
+											type="number"
+											min="0"
+											max="100"
+											step="0.01"
+											className="input join-item input-bordered w-full"
+											value={alipayDraft.feeRatePercent}
+											onChange={(event) =>
+												setAlipayDraft((current) => ({
+													...current,
+													feeRatePercent: event.target.value,
+												}))
+											}
+										/>
+										<span className="join-item flex items-center border border-base-300 bg-base-200 px-4">
+											%
+										</span>
+									</div>
+									<span className="mt-2 text-xs text-base-content/60">
+										{t("alipay.feeRateHelp")}
+									</span>
+								</label>
+								<label className="form-control w-full">
+									<span className="label-text mb-2">{t("alipay.gateway")}</span>
+									<input
+										type="url"
+										className="input input-bordered w-full font-mono text-sm"
+										value={alipayDraft.gateway}
+										readOnly
+									/>
+									<span className="mt-2 text-xs text-base-content/60">
+										{t("alipay.gatewayHelp")}
 									</span>
 								</label>
 							</div>

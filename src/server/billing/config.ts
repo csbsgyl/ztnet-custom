@@ -16,14 +16,16 @@ type AlipayOptionFields = Pick<
 	| "alipayGateway"
 	| "alipayPrivateKeyEncrypted"
 	| "alipayPublicKey"
+	| "alipayFeeRateBps"
 >;
 
 export type AlipayRuntimeConfig = {
 	appId: string;
-	sellerId: string;
+	sellerId: string | null;
 	gateway: string;
 	privateKey: string;
 	alipayPublicKey: string;
+	feeRateBps: number;
 };
 
 export function getAlipayRuntimeConfig(
@@ -35,7 +37,6 @@ export function getAlipayRuntimeConfig(
 		!options ||
 		(requireEnabled && !options.alipayEnabled) ||
 		!options.alipayAppId ||
-		!options.alipaySellerId ||
 		!options.alipayPrivateKeyEncrypted ||
 		!options.alipayPublicKey
 	) {
@@ -52,6 +53,7 @@ export function getAlipayRuntimeConfig(
 		gateway,
 		privateKey: decryptAlipayPrivateKey(options.alipayPrivateKeyEncrypted),
 		alipayPublicKey: options.alipayPublicKey,
+		feeRateBps: options.alipayFeeRateBps ?? 0,
 	};
 }
 
@@ -90,9 +92,9 @@ export function getPublicAlipayConfig(options: AlipayOptionFields | null) {
 	return {
 		enabled: options?.alipayEnabled ?? false,
 		appId: options?.alipayAppId ?? "",
-		sellerId: options?.alipaySellerId ?? "",
 		gateway: options?.alipayGateway || DEFAULT_ALIPAY_GATEWAY,
 		alipayPublicKey: options?.alipayPublicKey ?? "",
+		feeRateBps: options?.alipayFeeRateBps ?? 0,
 		hasPrivateKey: Boolean(options?.alipayPrivateKeyEncrypted),
 	};
 }
