@@ -6,6 +6,7 @@ import {
 	type KeyObject,
 } from "node:crypto";
 import {
+	buildTradeCloseUrl,
 	canonicalizeParameters,
 	buildPagePayUrl,
 	type AlipayErrorCode,
@@ -122,6 +123,7 @@ describe("Alipay RSA2 protocol", () => {
 			subject: "ZTNET Pro",
 			notifyUrl: "https://merchant.example.test/api/billing/alipay/notify",
 			returnUrl: "https://merchant.example.test/billing/return?orderId=order-1",
+			timeExpire: new Date("2026-07-14T08:14:10.000Z"),
 			timestamp: new Date("2026-07-14T08:09:10.000Z"),
 		});
 
@@ -145,6 +147,7 @@ describe("Alipay RSA2 protocol", () => {
 			product_code: "FAST_INSTANT_TRADE_PAY",
 			total_amount: "123.45",
 			subject: "ZTNET Pro",
+			time_expire: "2026-07-14 16:14:10",
 		});
 
 		const content = canonicalizeParameters(parameters);
@@ -152,6 +155,38 @@ describe("Alipay RSA2 protocol", () => {
 			rsaVerify(
 				"RSA-SHA256",
 				Buffer.from(content, "utf8"),
+				{ key: publicKey, padding: constants.RSA_PKCS1_PADDING },
+				Buffer.from(signature, "base64"),
+			),
+		).toBe(true);
+	});
+
+	test("builds a signed trade-close request for the merchant order", () => {
+		const closeUrl = buildTradeCloseUrl({
+			appId: APP_ID,
+			privateKey,
+			gateway: "https://alipay.example.test/gateway.do",
+			merchantOrderNo: MERCHANT_ORDER_NO,
+			timestamp: new Date("2026-07-14T08:09:10.000Z"),
+		});
+		const url = new URL(closeUrl);
+		const { sign: signature, ...parameters } = Object.fromEntries(
+			url.searchParams.entries(),
+		);
+		if (!signature) throw new Error("Trade-close URL did not contain a signature.");
+
+		expect(parameters).toMatchObject({
+			app_id: APP_ID,
+			method: "alipay.trade.close",
+			sign_type: "RSA2",
+		});
+		expect(JSON.parse(parameters.biz_content ?? "{}")).toEqual({
+			out_trade_no: MERCHANT_ORDER_NO,
+		});
+		expect(
+			rsaVerify(
+				"RSA-SHA256",
+				Buffer.from(canonicalizeParameters(parameters), "utf8"),
 				{ key: publicKey, padding: constants.RSA_PKCS1_PADDING },
 				Buffer.from(signature, "base64"),
 			),

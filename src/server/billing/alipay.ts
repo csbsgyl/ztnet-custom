@@ -56,6 +56,12 @@ export interface BuildPagePayUrlOptions extends AlipayRequestConfig {
 	returnUrl?: string;
 	body?: string;
 	timeoutExpress?: string;
+	timeExpire?: Date;
+	timestamp?: Date;
+}
+
+export interface BuildTradeCloseUrlOptions extends AlipayRequestConfig {
+	merchantOrderNo: string;
 	timestamp?: Date;
 }
 
@@ -90,6 +96,16 @@ export interface AlipayTradeQueryResponse {
 	total_amount?: string;
 	buyer_pay_amount?: string;
 	send_pay_date?: string;
+	[key: string]: unknown;
+}
+
+export interface AlipayTradeCloseResponse {
+	code: string;
+	msg?: string;
+	sub_code?: string;
+	sub_msg?: string;
+	trade_no?: string;
+	out_trade_no?: string;
 	[key: string]: unknown;
 }
 
@@ -646,6 +662,7 @@ export function buildPagePayUrl(options: BuildPagePayUrlOptions): string {
 		assertHttpUrl(options.returnUrl, "returnUrl");
 	}
 	if (options.body !== undefined) assertText(options.body, "body", 128);
+	if (options.timeExpire !== undefined) assertDate(options.timeExpire);
 	if (
 		options.timeoutExpress !== undefined &&
 		!/^[1-9]\d{0,4}[mhdc]$/.test(options.timeoutExpress)
@@ -662,6 +679,9 @@ export function buildPagePayUrl(options: BuildPagePayUrlOptions): string {
 	if (options.body !== undefined) bizContent.body = options.body;
 	if (options.timeoutExpress !== undefined) {
 		bizContent.timeout_express = options.timeoutExpress;
+	}
+	if (options.timeExpire !== undefined) {
+		bizContent.time_expire = formatAlipayTimestamp(options.timeExpire);
 	}
 
 	const parameters = commonRequestParameters(
@@ -694,6 +714,19 @@ export function buildTradeQueryUrl(options: BuildTradeQueryUrlOptions): string {
 		options.timestamp,
 	);
 	parameters.biz_content = JSON.stringify(bizContent);
+	return buildSignedGatewayUrl(options, parameters);
+}
+
+export function buildTradeCloseUrl(options: BuildTradeCloseUrlOptions): string {
+	assertOutTradeNo(options.merchantOrderNo);
+	const parameters = commonRequestParameters(
+		options,
+		"alipay.trade.close",
+		options.timestamp,
+	);
+	parameters.biz_content = JSON.stringify({
+		out_trade_no: options.merchantOrderNo,
+	});
 	return buildSignedGatewayUrl(options, parameters);
 }
 
@@ -940,6 +973,17 @@ export function verifyTradeQueryResponse(
 		alipayPublicKey,
 		expected,
 	}) as Readonly<AlipayTradeQueryResponse>;
+}
+
+export function verifyTradeCloseResponse(
+	input: string | Uint8Array,
+	alipayPublicKey: AlipayKey,
+): Readonly<AlipayTradeCloseResponse> {
+	return verifyAlipayResponse({
+		body: input,
+		alipayPublicKey,
+		responseKey: "alipay_trade_close_response",
+	}) as Readonly<AlipayTradeCloseResponse>;
 }
 
 function requireNotificationParameter(

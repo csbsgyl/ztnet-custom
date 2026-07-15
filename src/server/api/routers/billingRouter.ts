@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { buildPagePayUrl } from "~/server/billing/alipay";
 import { getAlipayCallbackUrls, getAlipayRuntimeConfig } from "~/server/billing/config";
+import { closePendingAlipayOrder } from "~/server/billing/payment";
 import {
 	getEffectiveEntitlement,
 	type EntitlementPrisma,
@@ -37,32 +38,47 @@ function planResult(plan: {
 	};
 }
 
-function orderResult(order: {
-	id: string;
-	merchantOrderNo: string;
-	status: string;
-	amountCents: number;
-	baseAmountCentsSnapshot: number;
-	upgradeAmountCentsSnapshot: number;
-	feeRateBpsSnapshot: number;
-	feeAmountCentsSnapshot: number;
-	planNameSnapshot: string;
-	durationMonthsSnapshot: number;
-	createdAt: Date;
-	paidAt: Date | null;
-}) {
+function effectiveOrderStatus(
+	order: { status: string; expiresAt: Date },
+	now: Date,
+): string {
+	return order.status === "PENDING" && order.expiresAt <= now ? "CLOSED" : order.status;
+}
+
+function orderResult(
+	order: {
+		id: string;
+		merchantOrderNo: string;
+		status: string;
+		amountCents: number;
+		baseAmountCentsSnapshot: number;
+		upgradeAmountCentsSnapshot: number;
+		feeRateBpsSnapshot: number;
+		feeAmountCentsSnapshot: number;
+		planNameSnapshot: string;
+		planId: string | null;
+		durationMonthsSnapshot: number;
+		createdAt: Date;
+		paidAt: Date | null;
+		expiresAt: Date;
+	},
+	now: Date,
+) {
 	return {
 		id: order.id,
 		orderNo: order.merchantOrderNo,
-		status: order.status,
+		status: effectiveOrderStatus(order, now),
 		amountCents: order.amountCents,
 		subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
 		feeRateBps: order.feeRateBpsSnapshot,
 		feeAmountCents: order.feeAmountCentsSnapshot,
 		planName: order.planNameSnapshot,
+		planId: order.planId,
+		baseAmountCents: order.baseAmountCentsSnapshot,
 		durationMonths: order.durationMonthsSnapshot,
 		createdAt: order.createdAt,
 		paidAt: order.paidAt,
+		expiresAt: order.expiresAt,
 	};
 }
 
@@ -73,11 +89,15 @@ async function paymentUrlForOrder(
 		merchantOrderNo: string;
 		amountCents: number;
 		subject: string;
+		expiresAt: Date;
 	},
 ) {
 	const options = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
 	const config = getAlipayRuntimeConfig(options);
 	const callbacks = getAlipayCallbackUrls(options, order.id);
+	if (order.expiresAt.getTime() <= Date.now()) {
+		throw new Error("This payment order has expired.");
+	}
 	return buildPagePayUrl({
 		appId: config.appId,
 		privateKey: config.privateKey,
@@ -87,8 +107,41 @@ async function paymentUrlForOrder(
 		subject: order.subject,
 		notifyUrl: callbacks.notifyUrl,
 		returnUrl: callbacks.returnUrl,
-		timeoutExpress: "15m",
+		timeExpire: order.expiresAt,
 	});
+}
+
+function createdOrderResult(
+	order: {
+		id: string;
+		merchantOrderNo: string;
+		status: string;
+		amountCents: number;
+		baseAmountCentsSnapshot: number;
+		upgradeAmountCentsSnapshot: number;
+		feeRateBpsSnapshot: number;
+		feeAmountCentsSnapshot: number;
+		durationMonthsSnapshot: number;
+		planId: string | null;
+		planNameSnapshot: string;
+		expiresAt: Date;
+	},
+	paymentUrl: string,
+) {
+	return {
+		orderId: order.id,
+		orderNo: order.merchantOrderNo,
+		status: order.status,
+		planId: order.planId,
+		planName: order.planNameSnapshot,
+		amountCents: order.amountCents,
+		subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
+		feeRateBps: order.feeRateBpsSnapshot,
+		feeAmountCents: order.feeAmountCentsSnapshot,
+		durationMonths: order.durationMonthsSnapshot,
+		paymentUrl,
+		expiresAt: order.expiresAt,
+	};
 }
 
 export const billingRouter = createTRPCRouter({
@@ -159,6 +212,12 @@ export const billingRouter = createTRPCRouter({
 			return { ...planResult(plan), upgradeAmountCents };
 		});
 
+		const orderSummaries = orders.map((order) => orderResult(order, now));
+		const pendingOrder =
+			orderSummaries.find(
+				(order) => order.status === "PENDING" && order.expiresAt > now,
+			) ?? null;
+
 		return {
 			subscription: activeSubscription,
 			networkUsage: {
@@ -166,7 +225,8 @@ export const billingRouter = createTRPCRouter({
 				limit: entitlement.hasActiveEntitlement ? entitlement.maxNetworks : 0,
 			},
 			plans: plansWithPricing,
-			orders: orders.map(orderResult),
+			orders: orderSummaries,
+			pendingOrder,
 			paymentFeeRateBps: options?.alipayFeeRateBps ?? 0,
 		};
 	}),
@@ -215,13 +275,9 @@ export const billingRouter = createTRPCRouter({
 						return existing;
 					}
 					if (existing) {
-						await transaction.billingOrder.updateMany({
-							where: {
-								userId: ctx.session.user.id,
-								source: "SELF_SERVICE",
-								status: "PENDING",
-							},
-							data: { status: "CLOSED", closedAt: new Date() },
+						throw new TRPCError({
+							code: "CONFLICT",
+							message: "You already have an unpaid order. Continue or cancel it first.",
 						});
 					}
 					return createPendingOrder({
@@ -233,22 +289,89 @@ export const billingRouter = createTRPCRouter({
 					});
 				});
 				const paymentUrl = await paymentUrlForOrder(ctx, order);
-				return {
-					orderId: order.id,
-					orderNo: order.merchantOrderNo,
-					status: order.status,
-					amountCents: order.amountCents,
-					subtotalCents: order.baseAmountCentsSnapshot + order.upgradeAmountCentsSnapshot,
-					feeRateBps: order.feeRateBpsSnapshot,
-					feeAmountCents: order.feeAmountCentsSnapshot,
-					durationMonths: order.durationMonthsSnapshot,
-					paymentUrl,
-					expiresAt: order.expiresAt,
-				};
+				return createdOrderResult(order, paymentUrl);
 			} catch (error) {
+				if (error instanceof TRPCError) throw error;
 				throw new TRPCError({
 					code: "BAD_REQUEST",
 					message: error instanceof Error ? error.message : "Could not create the order.",
+				});
+			}
+		}),
+
+	resumeOrder: protectedProcedure
+		.input(z.object({ orderId: z.string().cuid() }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				const order = await ctx.prisma.billingOrder.findFirst({
+					where: {
+						id: input.orderId,
+						userId: ctx.session.user.id,
+						source: "SELF_SERVICE",
+					},
+				});
+				if (!order)
+					throw new TRPCError({ code: "NOT_FOUND", message: "Order not found." });
+				if (order.status !== "PENDING") {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: "This order is no longer awaiting payment.",
+					});
+				}
+				if (order.expiresAt <= new Date()) {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: "This payment order has expired.",
+					});
+				}
+				return createdOrderResult(order, await paymentUrlForOrder(ctx, order));
+			} catch (error) {
+				if (error instanceof TRPCError) throw error;
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: error instanceof Error ? error.message : "Could not resume the order.",
+				});
+			}
+		}),
+
+	cancelOrder: protectedProcedure
+		.input(z.object({ orderId: z.string().cuid() }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				const order = await ctx.prisma.billingOrder.findFirst({
+					where: {
+						id: input.orderId,
+						userId: ctx.session.user.id,
+						source: "SELF_SERVICE",
+					},
+				});
+				if (!order)
+					throw new TRPCError({ code: "NOT_FOUND", message: "Order not found." });
+				if (order.status !== "PENDING") {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: "This order is no longer awaiting payment.",
+					});
+				}
+				const options = await ctx.prisma.globalOptions.findUnique({ where: { id: 1 } });
+				const config = getAlipayRuntimeConfig(options, { requireEnabled: false });
+				const result = await closePendingAlipayOrder({
+					prisma: ctx.prisma,
+					config,
+					orderId: order.id,
+				});
+				if (result.state !== "CLOSED") {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: "The order was already paid or completed; refresh the page.",
+					});
+				}
+				return { orderId: order.id, status: "CLOSED" as const };
+			} catch (error) {
+				if (error instanceof TRPCError) throw error;
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: error instanceof Error ? error.message : "Could not cancel the order.",
 				});
 			}
 		}),
@@ -261,8 +384,10 @@ export const billingRouter = createTRPCRouter({
 			});
 			if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found." });
 
+			const now = new Date();
+			const status = effectiveOrderStatus(order, now);
 			let paymentUrl: string | null = null;
-			if (order.status === "PENDING" && order.expiresAt > new Date()) {
+			if (status === "PENDING") {
 				try {
 					paymentUrl = await paymentUrlForOrder(ctx, order);
 				} catch {
@@ -272,9 +397,14 @@ export const billingRouter = createTRPCRouter({
 			return {
 				orderId: order.id,
 				orderNo: order.merchantOrderNo,
-				status: order.status,
+				status,
 				paymentUrl,
-				message: order.failureReason,
+				expiresAt: order.expiresAt,
+				message:
+					order.failureReason ??
+					(status === "CLOSED" && order.status === "PENDING"
+						? "Payment order expired after five minutes."
+						: null),
 			};
 		}),
 });

@@ -14,7 +14,10 @@ import {
 import type { PrismaClient } from "@prisma/client";
 import { canonicalizeParameters } from "~/server/billing/alipay";
 import type { AlipayRuntimeConfig } from "~/server/billing/config";
-import { queryAndReconcileAlipayOrder } from "~/server/billing/payment";
+import {
+	closePendingAlipayOrder,
+	queryAndReconcileAlipayOrder,
+} from "~/server/billing/payment";
 import { fulfilPaidOrder } from "~/server/billing/runtime";
 import { recordVerifiedAlipayPayment } from "~/server/billing/service";
 
@@ -67,6 +70,16 @@ function buildSignedQueryResponse(
 	)},"sign_type":"RSA2"}`;
 }
 
+function buildSignedCloseResponse(
+	response: Readonly<Record<string, string>>,
+	privateKey = alipayPrivateKey,
+): string {
+	const responseJson = JSON.stringify(response);
+	return `{"alipay_trade_close_response":${responseJson},"sign":${JSON.stringify(
+		signResponseContent(responseJson, privateKey),
+	)},"sign_type":"RSA2"}`;
+}
+
 function createHarness(status: "PENDING" | "PAID" | "FULFILLED" = "PENDING") {
 	const order = {
 		id: "order-1",
@@ -79,10 +92,20 @@ function createHarness(status: "PENDING" | "PAID" | "FULFILLED" = "PENDING") {
 		Object.assign(order, data);
 		return order;
 	});
+	const updateMany = jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+		if (order.status !== "PENDING") return { count: 0 };
+		Object.assign(order, data);
+		return { count: 1 };
+	});
+	const transaction = {
+		$executeRaw: jest.fn(async () => 1),
+		billingOrder: { findUnique, updateMany },
+	};
 	const prisma = {
 		billingOrder: { findUnique, update },
+		$transaction: jest.fn(async (operation) => operation(transaction)),
 	} as unknown as PrismaClient;
-	return { prisma, order, mocks: { findUnique, update } };
+	return { prisma, order, mocks: { findUnique, update, updateMany } };
 }
 
 function runtimeConfig(): AlipayRuntimeConfig {
@@ -228,5 +251,100 @@ describe("active Alipay query reconciliation", () => {
 		).resolves.toEqual({ state: "FULFILLED" });
 		expect(fetchMock).not.toHaveBeenCalled();
 		expect(fulfilPaidOrder).toHaveBeenCalledWith(harness.prisma, MERCHANT_ORDER_NO);
+	});
+
+	test("queries an unpaid order and sends a signed trade-close request", async () => {
+		const harness = createHarness();
+		const responses = [
+			buildSignedQueryResponse({
+				code: "10000",
+				msg: "Success",
+				out_trade_no: MERCHANT_ORDER_NO,
+				trade_status: "WAIT_BUYER_PAY",
+				total_amount: "25.00",
+			}),
+			buildSignedCloseResponse({
+				code: "10000",
+				msg: "Success",
+				out_trade_no: MERCHANT_ORDER_NO,
+			}),
+		];
+		const fetchMock = jest.fn(async (_url: string) => ({
+			ok: true,
+			status: 200,
+			text: async () => responses.shift() ?? "",
+		}));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await expect(
+			closePendingAlipayOrder({
+				prisma: harness.prisma,
+				config: runtimeConfig(),
+				orderId: "order-1",
+			}),
+		).resolves.toMatchObject({ state: "CLOSED", closedAt: expect.any(Date) });
+		expect(harness.order.status).toBe("CLOSED");
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+
+		const closeRequest = fetchMock.mock.calls[1]?.[0];
+		if (typeof closeRequest !== "string") {
+			throw new Error("Alipay close URL was not passed to fetch.");
+		}
+		const url = new URL(closeRequest);
+		const { sign: signature, ...parameters } = Object.fromEntries(
+			url.searchParams.entries(),
+		);
+		if (!signature) throw new Error("Alipay close URL was not signed.");
+		expect(parameters.method).toBe("alipay.trade.close");
+		expect(JSON.parse(parameters.biz_content ?? "{}")).toEqual({
+			out_trade_no: MERCHANT_ORDER_NO,
+		});
+		expect(
+			rsaVerify(
+				"RSA-SHA256",
+				Buffer.from(canonicalizeParameters(parameters), "utf8"),
+				{ key: merchantPublicKey, padding: constants.RSA_PKCS1_PADDING },
+				Buffer.from(signature, "base64"),
+			),
+		).toBe(true);
+	});
+
+	test("keeps the local order pending when the close response signature is invalid", async () => {
+		const harness = createHarness();
+		const responses = [
+			buildSignedQueryResponse({
+				code: "10000",
+				msg: "Success",
+				out_trade_no: MERCHANT_ORDER_NO,
+				trade_status: "WAIT_BUYER_PAY",
+				total_amount: "25.00",
+			}),
+			buildSignedCloseResponse(
+				{
+					code: "10000",
+					msg: "Success",
+					out_trade_no: MERCHANT_ORDER_NO,
+				},
+				merchantPrivateKey,
+			),
+		];
+		global.fetch = jest.fn(async () => ({
+			ok: true,
+			status: 200,
+			text: async () => responses.shift() ?? "",
+		})) as unknown as typeof fetch;
+
+		await expect(
+			closePendingAlipayOrder({
+				prisma: harness.prisma,
+				config: runtimeConfig(),
+				orderId: "order-1",
+			}),
+		).rejects.toMatchObject({
+			name: "AlipayProtocolError",
+			code: "INVALID_SIGNATURE",
+		});
+		expect(harness.order.status).toBe("PENDING");
+		expect(harness.mocks.updateMany).not.toHaveBeenCalled();
 	});
 });

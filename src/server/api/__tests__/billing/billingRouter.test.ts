@@ -16,19 +16,30 @@ jest.mock("~/server/billing/orders", () => ({
 	...jest.requireActual("~/server/billing/orders"),
 	createPendingOrder: jest.fn(),
 }));
+jest.mock("~/server/billing/payment", () => ({
+	closePendingAlipayOrder: jest.fn(),
+}));
+jest.mock("~/server/billing/entitlements", () => ({
+	getEffectiveEntitlement: jest.fn(async () => ({
+		hasActiveEntitlement: false,
+		maxNetworks: 0,
+	})),
+}));
 
 import type { Session } from "~/lib/authTypes";
 import { billingRouter } from "~/server/api/routers/billingRouter";
 import { createPendingOrder } from "~/server/billing/orders";
+import { closePendingAlipayOrder } from "~/server/billing/payment";
 
 const planId = "clz0000000000000000000001";
+const orderId = "clz0000000000000000000002";
 const session = {
 	expires: "2099-01-01T00:00:00.000Z",
 	user: { id: "user-1", role: "USER" },
 } as Session;
 
 const order = (overrides: Record<string, unknown> = {}) => ({
-	id: "order-new",
+	id: orderId,
 	merchantOrderNo: "ZT202607150001",
 	planId,
 	status: "PENDING",
@@ -37,8 +48,13 @@ const order = (overrides: Record<string, unknown> = {}) => ({
 	upgradeAmountCentsSnapshot: 0,
 	feeRateBpsSnapshot: 60,
 	feeAmountCentsSnapshot: 71,
+	planNameSnapshot: "轻享版",
 	durationMonthsSnapshot: 12,
 	subject: "轻享版（12个月）",
+	createdAt: new Date("2026-07-15T10:10:00.000Z"),
+	paidAt: null,
+	failureReason: null,
+	source: "SELF_SERVICE",
 	expiresAt: new Date("2026-07-15T10:15:00.000Z"),
 	...overrides,
 });
@@ -72,6 +88,13 @@ function createHarness(existingOrder: ReturnType<typeof order> | null) {
 				expiresAt: null,
 			})),
 		},
+		billingOrder: {
+			findFirst: jest.fn(async () => existingOrder),
+			findMany: jest.fn(async () => (existingOrder ? [existingOrder] : [])),
+		},
+		billingPlan: { findMany: jest.fn(async () => []) },
+		subscription: { findUnique: jest.fn(async () => null) },
+		network: { count: jest.fn(async () => 0) },
 		globalOptions: { findUnique: jest.fn(async () => ({})) },
 		$transaction: jest.fn(async (operation) => operation(transaction)),
 	};
@@ -81,12 +104,18 @@ function createHarness(existingOrder: ReturnType<typeof order> | null) {
 		wss: null,
 		res: null,
 	} as never);
-	return { caller, updateMany };
+	return { caller, prisma, updateMany };
 }
 
 describe("billing order quantity reuse", () => {
 	beforeEach(() => {
+		jest.useFakeTimers().setSystemTime(new Date("2026-07-15T10:10:00.000Z"));
 		jest.mocked(createPendingOrder).mockReset();
+		jest.mocked(closePendingAlipayOrder).mockReset();
+	});
+
+	afterEach(() => {
+		jest.useRealTimers();
 	});
 
 	test("reuses a pending order only when its quantity snapshots still match", async () => {
@@ -96,7 +125,7 @@ describe("billing order quantity reuse", () => {
 		const result = await caller.createOrder({ planId, quantity: 12 });
 
 		expect(result).toMatchObject({
-			orderId: "order-new",
+			orderId,
 			durationMonths: 12,
 			amountCents: 11_951,
 		});
@@ -104,7 +133,7 @@ describe("billing order quantity reuse", () => {
 		expect(createPendingOrder).not.toHaveBeenCalled();
 	});
 
-	test("closes an old pending order when the purchase quantity changes", async () => {
+	test("rejects a different purchase while an unpaid order is active", async () => {
 		const existingOrder = order({
 			id: "order-old",
 			amountCents: 996,
@@ -113,27 +142,99 @@ describe("billing order quantity reuse", () => {
 			durationMonthsSnapshot: 1,
 			subject: "轻享版（1个月）",
 		});
-		const newOrder = order();
-		jest.mocked(createPendingOrder).mockResolvedValue(newOrder as never);
 		const { caller, updateMany } = createHarness(existingOrder);
 
-		const result = await caller.createOrder({ planId, quantity: 12 });
+		await expect(caller.createOrder({ planId, quantity: 12 })).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: "You already have an unpaid order. Continue or cancel it first.",
+		});
+		expect(updateMany).not.toHaveBeenCalled();
+		expect(createPendingOrder).not.toHaveBeenCalled();
+	});
 
-		expect(updateMany).toHaveBeenCalledWith({
-			where: {
-				userId: "user-1",
-				source: "SELF_SERVICE",
-				status: "PENDING",
+	test("resumes an unexpired order owned by the user", async () => {
+		const existingOrder = order();
+		const { caller } = createHarness(existingOrder);
+
+		await expect(
+			caller.resumeOrder({ orderId: existingOrder.id }),
+		).resolves.toMatchObject({
+			orderId: existingOrder.id,
+			planName: "轻享版",
+			paymentUrl: "https://alipay.example/pay",
+		});
+	});
+
+	test("rejects an expired order without closing it during the request", async () => {
+		const existingOrder = order({ expiresAt: new Date("2026-07-15T10:09:59.000Z") });
+		const { caller, updateMany } = createHarness(existingOrder);
+
+		await expect(caller.resumeOrder({ orderId: existingOrder.id })).rejects.toMatchObject(
+			{
+				code: "CONFLICT",
+				message: "This payment order has expired.",
 			},
-			data: { status: "CLOSED", closedAt: expect.any(Date) },
+		);
+		expect(updateMany).not.toHaveBeenCalled();
+	});
+
+	test("returns a virtual closed status for an expired order without mutating it", async () => {
+		const existingOrder = order({ expiresAt: new Date("2026-07-15T10:09:59.000Z") });
+		const { caller, updateMany } = createHarness(existingOrder);
+
+		await expect(
+			caller.getOrderStatus({ orderId: existingOrder.id }),
+		).resolves.toMatchObject({
+			orderId: existingOrder.id,
+			status: "CLOSED",
+			paymentUrl: null,
+			message: "Payment order expired after five minutes.",
 		});
-		expect(createPendingOrder).toHaveBeenCalledWith({
-			db: expect.any(Object),
-			userId: "user-1",
-			planId,
-			quantity: 12,
-			feeRateBps: 60,
+		expect(updateMany).not.toHaveBeenCalled();
+	});
+
+	test("cancels an unpaid order only after Alipay confirms it can be closed", async () => {
+		const existingOrder = order();
+		const { caller, prisma } = createHarness(existingOrder);
+		jest.mocked(closePendingAlipayOrder).mockResolvedValue({ state: "CLOSED" });
+
+		await expect(caller.cancelOrder({ orderId: existingOrder.id })).resolves.toEqual({
+			orderId: existingOrder.id,
+			status: "CLOSED",
 		});
-		expect(result.durationMonths).toBe(12);
+		expect(closePendingAlipayOrder).toHaveBeenCalledWith({
+			prisma,
+			config: expect.objectContaining({ appId: "app-id" }),
+			orderId: existingOrder.id,
+		});
+	});
+
+	test("does not report cancellation when payment won the race", async () => {
+		const existingOrder = order();
+		const { caller } = createHarness(existingOrder);
+		jest.mocked(closePendingAlipayOrder).mockResolvedValue({ state: "FULFILLED" });
+
+		await expect(caller.cancelOrder({ orderId: existingOrder.id })).rejects.toMatchObject(
+			{
+				code: "CONFLICT",
+			},
+		);
+	});
+
+	test("includes the active unpaid order in the billing overview", async () => {
+		const existingOrder = order();
+		const { caller } = createHarness(existingOrder);
+
+		await expect(caller.getOverview()).resolves.toMatchObject({
+			pendingOrder: {
+				id: existingOrder.id,
+				orderNo: existingOrder.merchantOrderNo,
+				status: "PENDING",
+				planId,
+				planName: "轻享版",
+				durationMonths: 12,
+				expiresAt: existingOrder.expiresAt,
+			},
+		});
 	});
 });

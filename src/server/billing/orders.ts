@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { BillingOrderSource, Prisma, PrismaClient } from "@prisma/client";
 
-export const ORDER_TTL_MS = 15 * 60 * 1000;
+export const ORDER_TTL_MS = 5 * 60 * 1000;
 export const MAX_BILLING_DURATION_MONTHS = 120;
 export const MAX_BILLING_AMOUNT_CENTS = 2_147_483_647;
 const AVERAGE_BILLING_MONTH_MS = 2_629_746_000;

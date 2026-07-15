@@ -1363,6 +1363,12 @@
 			"progressLabel": "Network allowance is {percent}% used"
 		},
 		"payment": {
+			"unpaidTitle": "You have an unpaid order",
+			"unpaidDescription": "Continue before the timer ends, or cancel this order before choosing another plan.",
+			"expiresIn": "Time remaining",
+			"resume": "Continue payment",
+			"cancel": "Cancel order",
+			"cancelConfirm": "Cancel this unpaid order? You can choose another plan afterward.",
 			"pendingTitle": "Waiting for Alipay payment",
 			"pendingDescription": "Complete the payment in the Alipay window. This page checks the order automatically.",
 			"confirmingTitle": "Confirming payment",
@@ -1374,7 +1380,7 @@
 			"live": "Live",
 			"openAlipay": "Open Alipay",
 			"dismiss": "Dismiss",
-			"popupBlocked": "The payment window was blocked. Use the Open Alipay link to continue.",
+			"popupBlocked": "The payment window was blocked. Select Continue payment to try again.",
 			"duration": "Purchase duration",
 			"subtotal": "Subtotal",
 			"fee": "Payment fee ({rate}%)",
@@ -1401,11 +1407,15 @@
 		},
 		"messages": {
 			"paymentSuccess": "Payment confirmed and plan activated.",
+			"pendingOrderExists": "You already have an unpaid order. Continue or cancel it first.",
+			"orderCancelled": "The unpaid order was cancelled.",
 			"operationFailed": "The billing operation could not be completed."
 		},
 		"errors": {
 			"overviewTitle": "Billing information unavailable",
 			"overview": "Billing information could not be loaded.",
+			"resumeOrder": "This order could not be resumed.",
+			"cancelOrder": "This order could not be cancelled.",
 			"orderStatus": "The latest order status could not be retrieved."
 		},
 		"plans": {

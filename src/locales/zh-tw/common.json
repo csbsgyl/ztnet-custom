@@ -1363,6 +1363,12 @@
 			"progressLabel": "Network allowance is {percent}% used"
 		},
 		"payment": {
+			"unpaidTitle": "您有一筆待支付訂單",
+			"unpaidDescription": "請在倒數結束前繼續支付；如需選擇其他方案，請先取消目前訂單。",
+			"expiresIn": "剩餘支付時間",
+			"resume": "繼續支付",
+			"cancel": "取消訂單",
+			"cancelConfirm": "確定取消這筆未支付訂單嗎？取消後可以重新選擇方案。",
 			"pendingTitle": "Waiting for Alipay payment",
 			"pendingDescription": "Complete the payment in the Alipay window. This page checks the order automatically.",
 			"confirmingTitle": "Confirming payment",
@@ -1374,7 +1380,7 @@
 			"live": "Live",
 			"openAlipay": "Open Alipay",
 			"dismiss": "Dismiss",
-			"popupBlocked": "The payment window was blocked. Use the Open Alipay link to continue.",
+			"popupBlocked": "支付視窗被瀏覽器攔截，請點擊「繼續支付」重試。",
 			"duration": "Purchase duration",
 			"subtotal": "Subtotal",
 			"fee": "Payment fee ({rate}%)",
@@ -1401,11 +1407,15 @@
 		},
 		"messages": {
 			"paymentSuccess": "Payment confirmed and plan activated.",
+			"pendingOrderExists": "您已有一筆未支付訂單，請先繼續支付或取消訂單。",
+			"orderCancelled": "未支付訂單已取消。",
 			"operationFailed": "The billing operation could not be completed."
 		},
 		"errors": {
 			"overviewTitle": "Billing information unavailable",
 			"overview": "Billing information could not be loaded.",
+			"resumeOrder": "暫時無法繼續支付此訂單。",
+			"cancelOrder": "暫時無法取消此訂單。",
 			"orderStatus": "The latest order status could not be retrieved."
 		},
 		"plans": {

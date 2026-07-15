@@ -4,10 +4,15 @@ import {
 	calculatePlanPurchaseTerms,
 	calculateUpgradeAmountCents,
 	createPendingOrder,
+	ORDER_TTL_MS,
 	type BillingDatabase,
 } from "~/server/billing/orders";
 
 const AVERAGE_BILLING_MONTH_MS = 2_629_746_000;
+
+test("self-service orders expire exactly five minutes after creation", () => {
+	expect(ORDER_TTL_MS).toBe(5 * 60 * 1_000);
+});
 
 describe("billing month arithmetic", () => {
 	test.each([

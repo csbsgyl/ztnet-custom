@@ -1,12 +1,16 @@
 import {
 	ArrowPathIcon,
+	ArrowTopRightOnSquareIcon,
+	CalendarDaysIcon,
 	CheckCircleIcon,
 	ClockIcon,
 	ExclamationCircleIcon,
+	GlobeAltIcon,
 	MinusIcon,
 	PlusIcon,
 	ReceiptPercentIcon,
 	RocketLaunchIcon,
+	XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useLocale, useTranslations } from "next-intl";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +22,22 @@ import { api, type RouterOutputs } from "~/utils/api";
 const ORDER_POLL_INTERVAL_MS = 2_000;
 
 type CreatedOrder = RouterOutputs["billing"]["createOrder"];
+type PendingOrder = NonNullable<RouterOutputs["billing"]["getOverview"]["pendingOrder"]>;
+
+type ActiveOrder = {
+	orderId: string;
+	orderNo: string;
+	status: string;
+	planId: string | null;
+	planName: string;
+	amountCents: number;
+	subtotalCents: number;
+	feeRateBps: number;
+	feeAmountCents: number;
+	durationMonths: number;
+	paymentUrl: string | null;
+	expiresAt: string | Date;
+};
 
 type PaymentPhase = "pending" | "confirming" | "success" | "failed";
 
@@ -47,6 +67,28 @@ const getPaymentPhase = (status?: string): PaymentPhase => {
 const isTerminalOrderStatus = (status?: string) => {
 	const phase = getPaymentPhase(status);
 	return phase === "success" || phase === "failed";
+};
+
+const restoredOrder = (order: PendingOrder): ActiveOrder => ({
+	orderId: order.id,
+	orderNo: order.orderNo,
+	status: order.status,
+	planId: order.planId,
+	planName: order.planName,
+	amountCents: order.amountCents,
+	subtotalCents: order.subtotalCents,
+	feeRateBps: order.feeRateBps,
+	feeAmountCents: order.feeAmountCents,
+	durationMonths: order.durationMonths,
+	paymentUrl: null,
+	expiresAt: order.expiresAt,
+});
+
+const formatCountdown = (milliseconds: number) => {
+	const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1_000));
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 };
 
 const getStatusBadgeClass = (status?: string) => {
@@ -79,37 +121,90 @@ const getStatusBadgeClass = (status?: string) => {
 const Billing = () => {
 	const t = useTranslations("billing");
 	const locale = useLocale();
-	const [activeOrder, setActiveOrder] = useState<CreatedOrder | null>(null);
+	const [activeOrder, setActiveOrder] = useState<ActiveOrder | null>(null);
 	const [purchasingPlanId, setPurchasingPlanId] = useState<string | null>(null);
 	const [planQuantities, setPlanQuantities] = useState<Record<string, number>>({});
+	const [clockMs, setClockMs] = useState(() => Date.now());
 	const handledSuccessOrder = useRef<string | null>(null);
+	const handledExpiredOrder = useRef<string | null>(null);
 	const paymentWindowRef = useRef<Window | null>(null);
+	const paymentWindowRedirectedRef = useRef(false);
+	const paymentStatusRef = useRef<HTMLElement | null>(null);
 
 	const overview = api.billing.getOverview.useQuery(undefined);
+
+	const openPaymentOrder = (order: CreatedOrder) => {
+		setActiveOrder(order);
+		setClockMs(Date.now());
+		const paymentWindow = paymentWindowRef.current;
+		if (paymentWindow && !paymentWindow.closed) {
+			paymentWindow.opener = null;
+			paymentWindowRedirectedRef.current = true;
+			paymentWindow.location.replace(order.paymentUrl);
+		} else {
+			paymentWindowRef.current = null;
+			paymentWindowRedirectedRef.current = false;
+			toast(t("payment.popupBlocked"));
+		}
+	};
+
 	const createOrderMutation = api.billing.createOrder.useMutation({
 		onSuccess: (order) => {
 			setPurchasingPlanId(null);
-			setActiveOrder(order);
-			const paymentWindow = paymentWindowRef.current;
-			paymentWindowRef.current = null;
-			if (paymentWindow && !paymentWindow.closed) {
-				paymentWindow.opener = null;
-				paymentWindow.location.replace(order.paymentUrl);
-			} else {
-				toast(t("payment.popupBlocked"));
-			}
+			openPaymentOrder(order);
 		},
 		onError: (error) => {
 			paymentWindowRef.current?.close();
 			paymentWindowRef.current = null;
+			paymentWindowRedirectedRef.current = false;
 			setPurchasingPlanId(null);
 			toast.error(error.message || t("messages.operationFailed"));
+			void overview.refetch();
+		},
+	});
+	const resumeOrderMutation = api.billing.resumeOrder.useMutation({
+		onSuccess: openPaymentOrder,
+		onError: (error) => {
+			paymentWindowRef.current?.close();
+			paymentWindowRef.current = null;
+			paymentWindowRedirectedRef.current = false;
+			toast.error(error.message || t("errors.resumeOrder"));
+			void overview.refetch();
+		},
+	});
+	const cancelOrderMutation = api.billing.cancelOrder.useMutation({
+		onSuccess: () => {
+			paymentWindowRef.current?.close();
+			paymentWindowRef.current = null;
+			paymentWindowRedirectedRef.current = false;
+			setActiveOrder(null);
+			toast.success(t("messages.orderCancelled"));
+			void overview.refetch();
+		},
+		onError: (error) => {
+			toast.error(error.message || t("errors.cancelOrder"));
+			void overview.refetch();
 		},
 	});
 
+	useEffect(() => {
+		const pendingOrder = overview.data?.pendingOrder;
+		if (!pendingOrder) return;
+		setActiveOrder((current) => {
+			if (current?.orderId === pendingOrder.id) {
+				return { ...restoredOrder(pendingOrder), paymentUrl: current.paymentUrl };
+			}
+			if (current && !isTerminalOrderStatus(current.status)) return current;
+			return restoredOrder(pendingOrder);
+		});
+		setClockMs(Date.now());
+	}, [overview.data?.pendingOrder]);
+
 	useEffect(
 		() => () => {
-			paymentWindowRef.current?.close();
+			if (!paymentWindowRedirectedRef.current) {
+				paymentWindowRef.current?.close();
+			}
 		},
 		[],
 	);
@@ -124,8 +219,39 @@ const Billing = () => {
 		},
 	);
 
-	const activeStatus = orderStatus.data?.status ?? activeOrder?.status;
-	const paymentPhase = getPaymentPhase(activeStatus);
+	const activeStatus = activeOrder
+		? (orderStatus.data?.status ?? activeOrder.status)
+		: undefined;
+	const expiresAtMs = activeOrder ? new Date(activeOrder.expiresAt).getTime() : 0;
+	const remainingMs = Number.isFinite(expiresAtMs)
+		? Math.max(0, expiresAtMs - clockMs)
+		: 0;
+	const displayedStatus =
+		activeStatus?.toUpperCase() === "PENDING" && remainingMs <= 0
+			? "CLOSED"
+			: activeStatus;
+	const paymentPhase = getPaymentPhase(displayedStatus);
+	const canResumePayment = activeStatus?.toUpperCase() === "PENDING" && remainingMs > 0;
+	const hasBlockingOrder =
+		canResumePayment || getPaymentPhase(activeStatus) === "confirming";
+
+	useEffect(() => {
+		if (!activeOrder || isTerminalOrderStatus(activeStatus)) return;
+		const tick = () => setClockMs(Date.now());
+		tick();
+		const interval = window.setInterval(tick, 1_000);
+		return () => window.clearInterval(interval);
+	}, [activeOrder, activeStatus]);
+
+	useEffect(() => {
+		if (!activeOrder || activeStatus?.toUpperCase() !== "PENDING" || remainingMs > 0) {
+			return;
+		}
+		if (handledExpiredOrder.current === activeOrder.orderId) return;
+		handledExpiredOrder.current = activeOrder.orderId;
+		void orderStatus.refetch();
+		void overview.refetch();
+	}, [activeOrder, activeStatus, orderStatus.refetch, overview.refetch, remainingMs]);
 
 	useEffect(() => {
 		if (!activeOrder || paymentPhase !== "success") return;
@@ -208,11 +334,35 @@ const Billing = () => {
 	};
 
 	const startPurchase = (planId: string, quantity: number) => {
+		if (hasBlockingOrder) {
+			toast(t("messages.pendingOrderExists"));
+			paymentStatusRef.current?.scrollIntoView?.({
+				behavior: "smooth",
+				block: "center",
+			});
+			return;
+		}
 		paymentWindowRef.current?.close();
+		paymentWindowRedirectedRef.current = false;
 		paymentWindowRef.current = window.open("about:blank", "_blank");
 		if (paymentWindowRef.current) paymentWindowRef.current.opener = null;
 		setPurchasingPlanId(planId);
 		createOrderMutation.mutate({ planId, quantity });
+	};
+
+	const resumePayment = () => {
+		if (!activeOrder || !canResumePayment) return;
+		paymentWindowRef.current?.close();
+		paymentWindowRedirectedRef.current = false;
+		paymentWindowRef.current = window.open("about:blank", "_blank");
+		if (paymentWindowRef.current) paymentWindowRef.current.opener = null;
+		resumeOrderMutation.mutate({ orderId: activeOrder.orderId });
+	};
+
+	const cancelPayment = () => {
+		if (!activeOrder || !canResumePayment) return;
+		if (!window.confirm(t("payment.cancelConfirm"))) return;
+		cancelOrderMutation.mutate({ orderId: activeOrder.orderId });
 	};
 
 	return (
@@ -233,8 +383,8 @@ const Billing = () => {
 				) : null}
 			</header>
 
-			<section aria-labelledby="subscription-title" className="grid gap-5 lg:grid-cols-2">
-				<div className="border border-base-300 bg-base-100 p-5">
+			<section aria-labelledby="subscription-title" className="grid gap-4 lg:grid-cols-2">
+				<div className="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
 					<div className="flex items-start justify-between gap-4">
 						<div>
 							<p id="subscription-title" className="text-sm text-base-content/60">
@@ -260,7 +410,7 @@ const Billing = () => {
 						</div>
 						{subscription ? (
 							<span
-								className={`badge badge-outline ${getStatusBadgeClass(subscription.status)}`}
+								className={`badge badge-outline h-7 min-w-[4.5rem] shrink-0 whitespace-nowrap px-3 leading-none ${getStatusBadgeClass(subscription.status)}`}
 							>
 								{t(`status.${subscription.status.toLowerCase()}`)}
 							</span>
@@ -268,7 +418,7 @@ const Billing = () => {
 					</div>
 				</div>
 
-				<div className="border border-base-300 bg-base-100 p-5">
+				<div className="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
 					<div className="flex items-start justify-between gap-4">
 						<div>
 							<p className="text-sm text-base-content/60">{t("usage.title")}</p>
@@ -294,9 +444,10 @@ const Billing = () => {
 
 			{activeOrder ? (
 				<section
+					ref={paymentStatusRef}
 					aria-labelledby="payment-status-title"
 					aria-live="polite"
-					className={`border p-5 ${
+					className={`scroll-mt-6 rounded-lg border p-5 shadow-sm ${
 						paymentPhase === "success"
 							? "border-success/50 bg-success/5"
 							: paymentPhase === "failed"
@@ -320,18 +471,33 @@ const Billing = () => {
 							<div className="flex flex-wrap items-center justify-between gap-2">
 								<div>
 									<h2 id="payment-status-title" className="font-semibold">
-										{t(`payment.${paymentPhase}Title`)}
+										{paymentPhase === "pending"
+											? t("payment.unpaidTitle")
+											: t(`payment.${paymentPhase}Title`)}
 									</h2>
 									<p className="mt-1 text-sm text-base-content/65">
-										{t(`payment.${paymentPhase}Description`)}
+										{paymentPhase === "pending"
+											? t("payment.unpaidDescription")
+											: t(`payment.${paymentPhase}Description`)}
 									</p>
 								</div>
-								{paymentPhase === "pending" || paymentPhase === "confirming" ? (
-									<span className="badge badge-primary badge-outline gap-2">
+								{canResumePayment ? (
+									<div className="flex shrink-0 items-center gap-3 rounded-md border border-primary/25 bg-base-100 px-3 py-2">
 										<span className="relative flex h-2 w-2">
 											<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-70" />
 											<span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
 										</span>
+										<div>
+											<p className="text-[0.6875rem] text-base-content/55">
+												{t("payment.expiresIn")}
+											</p>
+											<p className="font-mono text-base font-semibold tabular-nums text-primary">
+												{formatCountdown(remainingMs)}
+											</p>
+										</div>
+									</div>
+								) : paymentPhase === "confirming" ? (
+									<span className="badge badge-primary badge-outline h-7 whitespace-nowrap px-3">
 										{t("payment.live")}
 									</span>
 								) : null}
@@ -351,17 +517,9 @@ const Billing = () => {
 								<span className="font-mono text-xs text-base-content/60">
 									{activeOrder.orderNo}
 								</span>
-								{orderStatus.data?.paymentUrl || activeOrder.paymentUrl ? (
-									<a
-										href={orderStatus.data?.paymentUrl || activeOrder.paymentUrl}
-										target="_blank"
-										rel="noreferrer"
-										className="link link-primary"
-									>
-										{t("payment.openAlipay")}
-									</a>
-								) : null}
-								{isTerminalOrderStatus(activeStatus) ? (
+								<span className="text-base-content/35">|</span>
+								<span className="font-medium">{activeOrder.planName}</span>
+								{isTerminalOrderStatus(displayedStatus) ? (
 									<button
 										type="button"
 										className="btn btn-ghost btn-xs"
@@ -371,6 +529,40 @@ const Billing = () => {
 									</button>
 								) : null}
 							</div>
+							{canResumePayment ? (
+								<div className="mt-4 flex flex-wrap gap-2">
+									<button
+										type="button"
+										className="btn btn-primary btn-sm"
+										disabled={
+											resumeOrderMutation.isLoading || cancelOrderMutation.isLoading
+										}
+										onClick={resumePayment}
+									>
+										{resumeOrderMutation.isLoading ? (
+											<span className="loading loading-spinner loading-xs" />
+										) : (
+											<ArrowTopRightOnSquareIcon className="h-4 w-4" />
+										)}
+										{t("payment.resume")}
+									</button>
+									<button
+										type="button"
+										className="btn btn-ghost btn-sm text-error"
+										disabled={
+											resumeOrderMutation.isLoading || cancelOrderMutation.isLoading
+										}
+										onClick={cancelPayment}
+									>
+										{cancelOrderMutation.isLoading ? (
+											<span className="loading loading-spinner loading-xs" />
+										) : (
+											<XMarkIcon className="h-4 w-4" />
+										)}
+										{t("payment.cancel")}
+									</button>
+								</div>
+							) : null}
 							<dl className="mt-4 grid max-w-md grid-cols-[1fr_auto] gap-x-6 gap-y-1 border-t border-base-300 pt-3 text-sm">
 								<dt className="text-base-content/65">{t("payment.duration")}</dt>
 								<dd className="text-right">
@@ -429,7 +621,7 @@ const Billing = () => {
 						<p className="mt-3 font-medium">{t("plans.empty")}</p>
 					</div>
 				) : (
-					<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
 						{plans.map((plan) => {
 							const isCurrent = subscription?.plan.id === plan.id;
 							const isDowngrade = hasActiveSubscription && plan.rank < currentRank;
@@ -446,36 +638,41 @@ const Billing = () => {
 							return (
 								<article
 									key={plan.id}
-									className={`border bg-base-100 p-5 ${
-										isCurrent ? "border-primary" : "border-base-300"
+									className={`flex h-full flex-col overflow-hidden rounded-lg border bg-base-100 shadow-sm transition-[border-color,box-shadow] duration-200 hover:shadow-md ${
+										isCurrent
+											? "border-primary ring-1 ring-primary/20"
+											: "border-base-300 hover:border-base-content/25"
 									}`}
 								>
-									<div className="flex min-h-14 items-start justify-between gap-3">
-										<div>
+									<div className="flex min-h-[6.25rem] items-start justify-between gap-3 p-4 pb-3">
+										<div className="min-w-0">
 											<h3 className="text-lg font-semibold">{plan.name}</h3>
-											<p className="mt-1 text-sm text-base-content/60">
+											<p className="mt-1 line-clamp-2 text-sm leading-5 text-base-content/60">
 												{plan.description || t("plans.noDescription")}
 											</p>
 										</div>
 										{isCurrent ? (
-											<span className="badge badge-primary badge-outline shrink-0">
+											<span className="badge badge-primary badge-outline h-7 shrink-0 whitespace-nowrap px-2 leading-none">
 												{t("plans.current")}
 											</span>
 										) : null}
 									</div>
-									<p className="mt-5 text-2xl font-semibold">
-										{currencyFormatter.format(plan.priceCents / 100)}
-										<span className="ml-1 text-sm font-normal text-base-content/60">
-											/ {t("plans.months", { count: plan.durationMonths })}
-										</span>
-									</p>
-									<p className="mt-3 text-sm">
-										{t("plans.networkLimit", {
-											count: plan.maxNetworks ?? t("usage.unlimited"),
-										})}
-									</p>
-									<div className="mt-5 border-y border-base-300 py-4">
-										<div className="flex items-center justify-between gap-4">
+									<div className="border-y border-base-300/80 px-4 py-4">
+										<p className="text-2xl font-semibold leading-none">
+											{currencyFormatter.format(plan.priceCents / 100)}
+											<span className="ml-1 text-xs font-normal text-base-content/55">
+												/ {t("plans.months", { count: plan.durationMonths })}
+											</span>
+										</p>
+										<p className="mt-3 flex items-center gap-2 text-sm font-medium">
+											<GlobeAltIcon className="h-4 w-4 shrink-0 text-primary" />
+											{t("plans.networkLimit", {
+												count: plan.maxNetworks ?? t("usage.unlimited"),
+											})}
+										</p>
+									</div>
+									<div className="mx-4 mt-4 rounded-md bg-base-200/70 p-3">
+										<div className="flex flex-col gap-2">
 											<div>
 												<p className="text-sm font-medium">{t("plans.quantity")}</p>
 												<p className="mt-0.5 text-xs text-base-content/55">
@@ -485,13 +682,13 @@ const Billing = () => {
 												</p>
 											</div>
 											<div
-												className="join shrink-0"
+												className="join grid w-full grid-cols-[2rem_1fr_2rem]"
 												role="group"
 												aria-label={t("plans.quantity")}
 											>
 												<button
 													type="button"
-													className="btn btn-square btn-sm join-item"
+													className="btn btn-square btn-sm join-item border-base-300 bg-base-100"
 													title={t("plans.decreaseQuantity")}
 													aria-label={t("plans.decreaseQuantity")}
 													disabled={quantity <= 1 || createOrderMutation.isLoading}
@@ -503,7 +700,7 @@ const Billing = () => {
 												</button>
 												<input
 													type="number"
-													className="input input-bordered input-sm join-item w-16 appearance-none px-1 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+													className="input input-bordered input-sm join-item w-full appearance-none bg-base-100 px-1 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 													min={1}
 													max={maxQuantity}
 													step={1}
@@ -519,7 +716,7 @@ const Billing = () => {
 												/>
 												<button
 													type="button"
-													className="btn btn-square btn-sm join-item"
+													className="btn btn-square btn-sm join-item border-base-300 bg-base-100"
 													title={t("plans.increaseQuantity")}
 													aria-label={t("plans.increaseQuantity")}
 													disabled={
@@ -533,8 +730,13 @@ const Billing = () => {
 												</button>
 											</div>
 										</div>
-										<dl className="mt-4 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
-											<dt className="text-base-content/60">{t("plans.totalDuration")}</dt>
+									</div>
+									<div className="flex flex-1 flex-col px-4 pb-4 pt-4">
+										<dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 text-sm">
+											<dt className="flex items-center gap-1.5 text-base-content/60">
+												<CalendarDaysIcon className="h-4 w-4" />
+												{t("plans.totalDuration")}
+											</dt>
 											<dd className="text-right font-medium">
 												{t("plans.months", { count: totalDurationMonths })}
 											</dd>
@@ -552,46 +754,44 @@ const Billing = () => {
 													</dd>
 												</>
 											) : null}
-											{paymentFeeRateBps > 0 ? (
-												<>
-													<dt className="text-base-content/60">
-														{t("plans.estimatedTotal")}
-													</dt>
-													<dd className="text-right font-semibold">
-														{currencyFormatter.format(
-															(orderSubtotalCents + estimatedFeeCents) / 100,
-														)}
-													</dd>
-												</>
-											) : null}
+											<dt className="mt-1 border-t border-base-300 pt-2 font-medium">
+												{t("plans.estimatedTotal")}
+											</dt>
+											<dd className="mt-1 border-t border-base-300 pt-2 text-right font-semibold text-primary">
+												{currencyFormatter.format(
+													(orderSubtotalCents + estimatedFeeCents) / 100,
+												)}
+											</dd>
 										</dl>
+										{paymentFeeRateBps > 0 ? (
+											<p className="mt-2 min-h-8 text-xs leading-4 text-base-content/55">
+												{t("plans.feeNotice", {
+													rate: (paymentFeeRateBps / 100).toFixed(2),
+												})}
+											</p>
+										) : (
+											<div className="min-h-8" />
+										)}
+										<button
+											type="button"
+											className="btn btn-primary mt-auto h-auto min-h-12 w-full whitespace-normal py-2 leading-5"
+											disabled={
+												isDowngrade || createOrderMutation.isLoading || !plan.isActive
+											}
+											onClick={() => startPurchase(plan.id, quantity)}
+										>
+											{isPurchasing ? (
+												<span className="loading loading-spinner loading-sm" />
+											) : null}
+											{isDowngrade
+												? t("plans.downgradeBlocked")
+												: isCurrent
+													? t("plans.renew")
+													: subscription
+														? t("plans.upgrade")
+														: t("plans.buy")}
+										</button>
 									</div>
-									{paymentFeeRateBps > 0 ? (
-										<p className="mt-2 text-xs text-base-content/60">
-											{t("plans.feeNotice", {
-												rate: (paymentFeeRateBps / 100).toFixed(2),
-											})}
-										</p>
-									) : null}
-									<button
-										type="button"
-										className="btn btn-primary mt-5 w-full"
-										disabled={
-											isDowngrade || createOrderMutation.isLoading || !plan.isActive
-										}
-										onClick={() => startPurchase(plan.id, quantity)}
-									>
-										{isPurchasing ? (
-											<span className="loading loading-spinner loading-sm" />
-										) : null}
-										{isDowngrade
-											? t("plans.downgradeBlocked")
-											: isCurrent
-												? t("plans.renew")
-												: subscription
-													? t("plans.upgrade")
-													: t("plans.buy")}
-									</button>
 								</article>
 							);
 						})}
@@ -642,9 +842,9 @@ const Billing = () => {
 												</p>
 											) : null}
 										</td>
-										<td>
+										<td className="whitespace-nowrap">
 											<span
-												className={`badge badge-outline ${getStatusBadgeClass(order.status)}`}
+												className={`badge badge-outline h-7 min-w-[4.5rem] whitespace-nowrap px-3 leading-none ${getStatusBadgeClass(order.status)}`}
 											>
 												{t(`status.${order.status.toLowerCase()}`)}
 											</span>

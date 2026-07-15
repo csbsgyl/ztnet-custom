@@ -532,6 +532,12 @@
 			"progressLabel": "网络额度已使用 {percent}%"
 		},
 		"payment": {
+			"unpaidTitle": "您有一笔待支付订单",
+			"unpaidDescription": "请在倒计时结束前继续支付；如需选择其他套餐，请先取消当前订单。",
+			"expiresIn": "剩余支付时间",
+			"resume": "继续支付",
+			"cancel": "取消订单",
+			"cancelConfirm": "确定取消这笔未支付订单吗？取消后可以重新选择套餐。",
 			"pendingTitle": "等待支付宝付款",
 			"pendingDescription": "请在支付宝窗口完成付款，本页面会自动检查订单状态。",
 			"confirmingTitle": "正在确认付款",
@@ -543,7 +549,7 @@
 			"live": "实时",
 			"openAlipay": "打开支付宝",
 			"dismiss": "关闭",
-			"popupBlocked": "支付窗口被浏览器拦截，请点击“打开支付宝”继续。",
+			"popupBlocked": "支付窗口被浏览器拦截，请点击“继续支付”重试。",
 			"duration": "购买时长",
 			"subtotal": "订单小计",
 			"fee": "支付手续费（{rate}%）",
@@ -570,11 +576,15 @@
 		},
 		"messages": {
 			"paymentSuccess": "支付已确认，套餐已开通。",
+			"pendingOrderExists": "您已有一笔未支付订单，请先继续支付或取消订单。",
+			"orderCancelled": "未支付订单已取消。",
 			"operationFailed": "计费操作未能完成。"
 		},
 		"errors": {
 			"overviewTitle": "无法获取计费信息",
 			"overview": "计费信息加载失败。",
+			"resumeOrder": "暂时无法继续支付该订单。",
+			"cancelOrder": "暂时无法取消该订单。",
 			"orderStatus": "暂时无法获取最新订单状态。"
 		},
 		"plans": {

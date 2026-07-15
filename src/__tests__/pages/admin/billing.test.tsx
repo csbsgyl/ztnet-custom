@@ -229,6 +229,10 @@ describe("Billing administration page", () => {
 		const queryButtons = screen.getAllByRole("button", { name: /^Query order/ });
 		expect(queryButtons).toHaveLength(2);
 		expect(screen.queryByRole("button", { name: "Query order ZT-FULFILLED" })).toBeNull();
+		expect(screen.getByText("Activated")).toHaveClass(
+			"min-w-[4.5rem]",
+			"whitespace-nowrap",
+		);
 
 		await user.click(screen.getByRole("button", { name: "Query order ZT-PENDING" }));
 		expect(queryOrder).toHaveBeenCalledWith({ orderId: "pending-order" });

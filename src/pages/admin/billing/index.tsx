@@ -698,8 +698,8 @@ const AdminBilling = () => {
 															) : null}
 														</td>
 														<td>{subscription.planName}</td>
-														<td>
-															<span className="badge badge-outline">
+														<td className="whitespace-nowrap">
+															<span className="badge badge-outline h-7 min-w-[4.5rem] whitespace-nowrap px-3 leading-none">
 																{billingT(`status.${subscription.status.toLowerCase()}`)}
 															</span>
 														</td>
@@ -1092,8 +1092,8 @@ const AdminBilling = () => {
 														</p>
 													) : null}
 												</td>
-												<td>
-													<span className="badge badge-outline">
+												<td className="whitespace-nowrap">
+													<span className="badge badge-outline h-7 min-w-[4.5rem] whitespace-nowrap px-3 leading-none">
 														{billingT(`status.${order.status.toLowerCase()}`)}
 													</span>
 												</td>
