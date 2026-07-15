@@ -527,7 +527,7 @@
 		},
 		"usage": {
 			"title": "Network usage",
-			"description": "Personal networks currently counted against your plan.",
+			"description": "Network IDs currently created and counted against your plan.",
 			"unlimited": "Unlimited",
 			"progressLabel": "Network allowance is {percent}% used"
 		},
@@ -583,7 +583,7 @@
 			"noDescription": "No description",
 			"current": "Current plan",
 			"months": "{count, plural, one {# month} other {# months}}",
-			"networkLimit": "Up to {count} personal networks",
+			"networkLimit": "Create up to {count} network IDs",
 			"feeNotice": "A {rate}% payment fee is added at checkout.",
 			"buy": "Buy now",
 			"renew": "Renew plan",

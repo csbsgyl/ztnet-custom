@@ -130,6 +130,8 @@ describe("Billing page", () => {
 		status = "PAID";
 
 		const view = renderPage();
+		expect(screen.getByText("Create up to 5 network IDs")).toBeInTheDocument();
+		expect(screen.queryByText("Up to 5 personal networks")).toBeNull();
 		await user.click(screen.getByRole("button", { name: "Buy now" }));
 
 		expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");

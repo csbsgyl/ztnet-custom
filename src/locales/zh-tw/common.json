@@ -1358,7 +1358,7 @@
 		},
 		"usage": {
 			"title": "Network usage",
-			"description": "Personal networks currently counted against your plan.",
+			"description": "目前已建立並計入方案額度的網路 ID 數量。",
 			"unlimited": "Unlimited",
 			"progressLabel": "Network allowance is {percent}% used"
 		},
@@ -1414,7 +1414,7 @@
 			"noDescription": "No description",
 			"current": "Current plan",
 			"months": "{count, plural, one {# month} other {# months}}",
-			"networkLimit": "Up to {count} personal networks",
+			"networkLimit": "可建立 {count} 個網路 ID",
 			"feeNotice": "A {rate}% payment fee is added at checkout.",
 			"buy": "Buy now",
 			"renew": "Renew plan",

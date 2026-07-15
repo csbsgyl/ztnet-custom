@@ -527,7 +527,7 @@
 		},
 		"usage": {
 			"title": "网络用量",
-			"description": "当前计入套餐额度的个人网络数量。",
+			"description": "当前已创建并计入套餐额度的网络 ID 数量。",
 			"unlimited": "不限",
 			"progressLabel": "网络额度已使用 {percent}%"
 		},
@@ -583,7 +583,7 @@
 			"noDescription": "暂无说明",
 			"current": "当前套餐",
 			"months": "{count} 个月",
-			"networkLimit": "最多创建 {count} 个个人网络",
+			"networkLimit": "可创建 {count} 个网络 ID",
 			"feeNotice": "结算时另收 {rate}% 支付手续费。",
 			"buy": "立即购买",
 			"renew": "续费当前套餐",
