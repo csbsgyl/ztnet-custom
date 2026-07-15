@@ -14,7 +14,7 @@ import { LayoutAdminAuthenticated } from "~/components/layouts/layout";
 import MenuSectionDividerWrapper from "~/components/shared/menuSectionDividerWrapper";
 import { useTrpcApiErrorHandler } from "~/hooks/useTrpcApiHandler";
 import { getServerSideProps } from "~/server/getServerSideProps";
-import { api } from "~/utils/api";
+import { api, type RouterOutputs } from "~/utils/api";
 import { useModalStore } from "~/utils/store";
 
 const UPDATE_PROGRESS_STORAGE_KEY = "ztnet-system-update-progress";
@@ -39,6 +39,8 @@ interface UpdateProgressState {
 	startedAt: number;
 	sawDisconnect: boolean;
 }
+
+type SystemUpdateStatus = RouterOutputs["admin"]["getSystemUpdateStatus"];
 
 const activeUpdatePhases: UpdatePhase[] = [
 	"requesting",
@@ -211,13 +213,14 @@ const SystemUpdate = () => {
 	const callModal = useModalStore((state) => state.callModal);
 	const handleApiError = useTrpcApiErrorHandler();
 	const [checkingStartedAt, setCheckingStartedAt] = useState<number | null>(null);
+	const [checkedStatus, setCheckedStatus] = useState<SystemUpdateStatus | null>(null);
 	const [updateProgress, setUpdateProgress] = useState<UpdateProgressState | null>(null);
 	const [progressRestored, setProgressRestored] = useState(false);
 	const updateIsActive = Boolean(
 		updateProgress && isActiveUpdatePhase(updateProgress.phase),
 	);
 	const {
-		data: status,
+		data: queriedStatus,
 		isLoading,
 		isFetching,
 		isError,
@@ -228,6 +231,9 @@ const SystemUpdate = () => {
 		refetchIntervalInBackground: true,
 		retry: false,
 	});
+	const status = checkedStatus || queriedStatus;
+	const { mutateAsync: checkSystemUpdateStatus } =
+		api.admin.checkSystemUpdateStatus.useMutation();
 	const { mutate: triggerUpdate, isLoading: isTriggering } =
 		api.admin.triggerSystemUpdate.useMutation({
 			onSuccess: (result) => {
@@ -365,13 +371,16 @@ const SystemUpdate = () => {
 	const checkNow = async () => {
 		setCheckingStartedAt(Date.now());
 		try {
-			await refetch();
+			setCheckedStatus(await checkSystemUpdateStatus());
+		} catch (error) {
+			handleApiError(error);
 		} finally {
 			setCheckingStartedAt(null);
 		}
 	};
 
 	const beginUpdate = () => {
+		setCheckedStatus(null);
 		setUpdateProgress({
 			phase: "requesting",
 			targetCommit: status?.latestBuild?.commit || null,

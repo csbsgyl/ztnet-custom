@@ -10,6 +10,7 @@ jest.mock("~/utils/api", () => ({
 	api: {
 		admin: {
 			getSystemUpdateStatus: { useQuery: jest.fn() },
+			checkSystemUpdateStatus: { useMutation: jest.fn() },
 			triggerSystemUpdate: { useMutation: jest.fn() },
 		},
 	},
@@ -29,6 +30,7 @@ jest.mock("~/components/layouts/layout", () => ({
 
 describe("System update admin page", () => {
 	const refetch = jest.fn();
+	const checkSystemUpdateStatus = jest.fn();
 	const triggerUpdate = jest.fn();
 	const callModal = jest.fn();
 	let mutationOptions: {
@@ -40,6 +42,22 @@ describe("System update admin page", () => {
 		window.localStorage.clear();
 		refetch.mockReset();
 		refetch.mockResolvedValue({ data: undefined });
+		checkSystemUpdateStatus.mockReset();
+		checkSystemUpdateStatus.mockResolvedValue({
+			currentVersion: "abc1234567890abc1234567890abc1234567890",
+			currentCommit: "abc1234567890abc1234567890abc1234567890",
+			latestBuild: {
+				commit: "def1234567890def1234567890def1234567890",
+				builtAt: "2026-07-14T04:00:00Z",
+				url: "https://github.com/example/run",
+			},
+			updateAvailable: true,
+			autoUpdateEnabled: true,
+			updateIntervalSeconds: 600,
+			updaterConnection: "connected",
+			image: "ghcr.nju.edu.cn/csbsgyl/ztnet-custom:latest",
+			checkedAt: "2026-07-14T04:01:00Z",
+		});
 		triggerUpdate.mockReset();
 		callModal.mockReset();
 		(api.admin.getSystemUpdateStatus.useQuery as jest.Mock).mockReturnValue({
@@ -72,6 +90,9 @@ describe("System update admin page", () => {
 				};
 			},
 		);
+		(api.admin.checkSystemUpdateStatus.useMutation as jest.Mock).mockReturnValue({
+			mutateAsync: checkSystemUpdateStatus,
+		});
 		(useModalStore as unknown as jest.Mock).mockReturnValue(callModal);
 	});
 
@@ -93,7 +114,7 @@ describe("System update admin page", () => {
 		expect(screen.getByText("Connected")).toBeInTheDocument();
 
 		await user.click(screen.getByRole("button", { name: "Check now" }));
-		expect(refetch).toHaveBeenCalledTimes(1);
+		expect(checkSystemUpdateStatus).toHaveBeenCalledTimes(1);
 
 		await user.click(screen.getByRole("button", { name: "Check and install" }));
 		expect(callModal).toHaveBeenCalledWith(
@@ -128,10 +149,10 @@ describe("System update admin page", () => {
 
 	it("shows a live animation for manual update checks", async () => {
 		const user = userEvent.setup();
-		let finishRefetch: (value: unknown) => void;
-		refetch.mockReturnValueOnce(
+		let finishCheck: (value: unknown) => void;
+		checkSystemUpdateStatus.mockReturnValueOnce(
 			new Promise((resolve) => {
-				finishRefetch = resolve;
+				finishCheck = resolve;
 			}),
 		);
 		renderPage();
@@ -142,7 +163,7 @@ describe("System update admin page", () => {
 		expect(screen.getByText("Live")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Checking..." })).toBeDisabled();
 
-		act(() => finishRefetch(undefined));
+		act(() => finishCheck(undefined));
 		await waitFor(() =>
 			expect(screen.queryByText("Checking for updates")).not.toBeInTheDocument(),
 		);

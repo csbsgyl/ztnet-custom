@@ -64,6 +64,9 @@ const mailTemplateKeyInput = z.enum([
 
 export const adminRouter = createTRPCRouter({
 	getSystemUpdateStatus: adminRoleProtectedRoute.query(() => getSystemUpdateStatus()),
+	checkSystemUpdateStatus: adminRoleProtectedRoute.mutation(() =>
+		getSystemUpdateStatus({ forceRefresh: true }),
+	),
 	triggerSystemUpdate: adminRoleProtectedRoute.mutation(async () => {
 		try {
 			return await triggerSystemUpdate();
