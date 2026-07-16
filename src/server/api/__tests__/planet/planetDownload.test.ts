@@ -59,7 +59,10 @@ describe("Planet download API", () => {
 	beforeEach(() => {
 		getSession.mockResolvedValue({ user: { id: "user-1" } });
 		mockPrisma.user.findUnique.mockResolvedValue(activeAccount);
-		mockPrisma.globalOptions.findUnique.mockResolvedValue({ customPlanetUsed: true });
+		mockPrisma.globalOptions.findUnique.mockResolvedValue({
+			planetId: 1,
+			customPlanetUsed: false,
+		});
 		readFile.mockResolvedValue(Buffer.from([0x7f, 0x50, 0x4c, 0x41, 0x4e, 0x45, 0x54]));
 	});
 
@@ -94,8 +97,11 @@ describe("Planet download API", () => {
 		expect(readFile).not.toHaveBeenCalled();
 	});
 
-	it("returns 404 while a custom Planet is not enabled", async () => {
-		mockPrisma.globalOptions.findUnique.mockResolvedValue({ customPlanetUsed: false });
+	it("returns 404 while no custom Planet configuration is linked", async () => {
+		mockPrisma.globalOptions.findUnique.mockResolvedValue({
+			planetId: null,
+			customPlanetUsed: true,
+		});
 		const { response, mocks } = createResponse();
 
 		await planetDownload(createRequest(), response);

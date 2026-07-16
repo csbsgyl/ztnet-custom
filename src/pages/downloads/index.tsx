@@ -13,7 +13,7 @@ const Downloads: NextPageWithLayout = () => {
 	const t = useTranslations("downloads");
 	const [isDownloading, setIsDownloading] = useState(false);
 	const { data: globalOptions, isLoading } = api.settings.getAllOptions.useQuery();
-	const planetAvailable = Boolean(globalOptions?.customPlanetUsed);
+	const planetAvailable = globalOptions?.planetId != null;
 	const title = `${globalOptions?.siteName ?? "ZTNET"} - ${t("title")}`;
 
 	const downloadPlanet = async () => {

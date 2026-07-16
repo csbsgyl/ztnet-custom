@@ -37,7 +37,7 @@ describe("Client downloads page", () => {
 	beforeEach(() => {
 		downloadedFilename = undefined;
 		getAllOptions.mockReturnValue({
-			data: { siteName: "ZTNET", customPlanetUsed: true },
+			data: { siteName: "ZTNET", planetId: 1, customPlanetUsed: false },
 			isLoading: false,
 		});
 		Object.defineProperty(window.URL, "createObjectURL", {
@@ -85,7 +85,7 @@ describe("Client downloads page", () => {
 
 	it("disables download while a custom Planet is unavailable", () => {
 		getAllOptions.mockReturnValue({
-			data: { siteName: "ZTNET", customPlanetUsed: false },
+			data: { siteName: "ZTNET", planetId: null, customPlanetUsed: true },
 			isLoading: false,
 		});
 

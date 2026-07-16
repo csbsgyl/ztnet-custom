@@ -35,7 +35,7 @@ export default async function planetDownload(req: NextApiRequest, res: NextApiRe
 		}),
 		prisma.globalOptions.findUnique({
 			where: { id: 1 },
-			select: { customPlanetUsed: true },
+			select: { planetId: true },
 		}),
 	]);
 
@@ -45,7 +45,7 @@ export default async function planetDownload(req: NextApiRequest, res: NextApiRe
 	if (!canAccessProtectedResources(account)) {
 		return res.status(403).send("Account is inactive or expired");
 	}
-	if (!options?.customPlanetUsed) {
+	if (options?.planetId == null) {
 		return res.status(404).send("Planet file is not available");
 	}
 
