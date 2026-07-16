@@ -17,7 +17,8 @@ import {
 } from "~/server/billing/config";
 import { createPendingOrder } from "~/server/billing/orders";
 import { queryAndReconcileAlipayOrder } from "~/server/billing/payment";
-import { fulfilPaidOrder } from "~/server/billing/runtime";
+import { fulfilPaidOrder, restoreSubscriptionAccess } from "~/server/billing/runtime";
+import { assignAdminPlanWithExpiration } from "~/server/billing/adminAssignment";
 import { adminRoleProtectedRoute, createTRPCRouter } from "~/server/api/trpc";
 
 const planInput = z.object({
@@ -300,18 +301,34 @@ export const billingAdminRouter = createTRPCRouter({
 		)
 		.mutation(async ({ ctx, input }) => {
 			try {
-				const order = await createPendingOrder({
-					db: ctx.prisma,
-					userId: input.userId,
-					planId: input.planId,
-					source: "MANUAL_ADMIN",
-					durationMonths: input.durationMonths,
-					amountCents: input.amountCents,
-					adminNote: input.note,
-				});
-				await ctx.prisma.billingOrder.update({
-					where: { id: order.id },
-					data: { status: "PAID", paidAt: new Date() },
+				const order = await ctx.prisma.$transaction(async (transaction) => {
+					const userLockKey = `billing-user:${input.userId}`;
+					await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userLockKey}))`;
+					const unsettledOrder = await transaction.billingOrder.findFirst({
+						where: {
+							userId: input.userId,
+							OR: [{ status: "PENDING" }, { status: "PAID", entitlementAppliedAt: null }],
+						},
+						select: { id: true },
+					});
+					if (unsettledOrder) {
+						throw new Error(
+							"The user has an unpaid or unfulfilled order. Complete or cancel it first.",
+						);
+					}
+					const created = await createPendingOrder({
+						db: transaction,
+						userId: input.userId,
+						planId: input.planId,
+						source: "MANUAL_ADMIN",
+						durationMonths: input.durationMonths,
+						amountCents: input.amountCents,
+						adminNote: input.note,
+					});
+					return transaction.billingOrder.update({
+						where: { id: created.id },
+						data: { status: "PAID", paidAt: new Date() },
+					});
 				});
 				await fulfilPaidOrder(ctx.prisma, order.merchantOrderNo);
 				await ctx.prisma.activityLog.create({
@@ -326,6 +343,33 @@ export const billingAdminRouter = createTRPCRouter({
 					code: "BAD_REQUEST",
 					message:
 						error instanceof Error ? error.message : "Could not renew subscription.",
+				});
+			}
+		}),
+
+	assignPlan: adminRoleProtectedRoute
+		.input(
+			z.object({
+				userId: z.string().cuid(),
+				planId: z.string().cuid(),
+				expiresAt: z.date(),
+				note: z.string().trim().max(500).optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				const assignment = await assignAdminPlanWithExpiration(ctx.prisma, {
+					...input,
+					performedById: ctx.session.user.id,
+				});
+				const restoration = assignment.needsRestoration
+					? await restoreSubscriptionAccess(ctx.prisma, input.userId)
+					: null;
+				return { assignment, restoration };
+			} catch (error) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: error instanceof Error ? error.message : "Could not assign the plan.",
 				});
 			}
 		}),

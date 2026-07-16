@@ -1,10 +1,20 @@
 jest.mock("cron", () => ({ CronJob: jest.fn() }));
 jest.mock("~/server/db", () => ({
 	prisma: {
+		$transaction: jest.fn(),
+		$executeRaw: jest.fn(),
 		user: {
+			findMany: jest.fn(),
+			findUnique: jest.fn(),
+			update: jest.fn(),
+		},
+		subscriptionSuspensionSnapshot: {
+			upsert: jest.fn(),
 			findMany: jest.fn(),
 			update: jest.fn(),
 		},
+		aPIToken: { updateMany: jest.fn() },
+		session: { deleteMany: jest.fn() },
 		networkQuotaReservation: {
 			deleteMany: jest.fn(),
 		},
@@ -40,6 +50,9 @@ jest.mock("~/server/billing/payment", () => ({
 jest.mock("~/server/billing/config", () => ({
 	getAlipayRuntimeConfig: jest.fn(),
 }));
+jest.mock("~/server/socketRegistry", () => ({
+	disconnectUserSockets: jest.fn(),
+}));
 
 import * as cron from "cron";
 import {
@@ -54,12 +67,23 @@ import * as ztController from "~/utils/ztApi";
 import { fulfilPaidOrder } from "~/server/billing/runtime";
 import { queryAndReconcileAlipayOrder } from "~/server/billing/payment";
 import { getAlipayRuntimeConfig } from "~/server/billing/config";
+import { disconnectUserSockets } from "~/server/socketRegistry";
 
 const mockPrisma = prisma as unknown as {
+	$transaction: jest.Mock;
+	$executeRaw: jest.Mock;
 	user: {
+		findMany: jest.Mock;
+		findUnique: jest.Mock;
+		update: jest.Mock;
+	};
+	subscriptionSuspensionSnapshot: {
+		upsert: jest.Mock;
 		findMany: jest.Mock;
 		update: jest.Mock;
 	};
+	aPIToken: { updateMany: jest.Mock };
+	session: { deleteMany: jest.Mock };
 	networkQuotaReservation: { deleteMany: jest.Mock };
 	network_members: { updateMany: jest.Mock };
 	billingOrder: { updateMany: jest.Mock; findMany: jest.Mock };
@@ -78,8 +102,21 @@ const EMPTY_RECONCILIATION = {
 };
 
 beforeEach(() => {
+	mockPrisma.$transaction.mockReset();
+	mockPrisma.$transaction.mockImplementation(async (operation) => operation(mockPrisma));
+	mockPrisma.$executeRaw.mockReset();
+	mockPrisma.$executeRaw.mockResolvedValue(1);
 	mockPrisma.user.findMany.mockReset();
+	mockPrisma.user.findUnique.mockReset();
 	mockPrisma.user.update.mockReset();
+	mockPrisma.subscriptionSuspensionSnapshot.upsert.mockReset();
+	mockPrisma.subscriptionSuspensionSnapshot.findMany.mockReset();
+	mockPrisma.subscriptionSuspensionSnapshot.findMany.mockResolvedValue([]);
+	mockPrisma.subscriptionSuspensionSnapshot.update.mockReset();
+	mockPrisma.aPIToken.updateMany.mockReset();
+	mockPrisma.aPIToken.updateMany.mockResolvedValue({ count: 0 });
+	mockPrisma.session.deleteMany.mockReset();
+	mockPrisma.session.deleteMany.mockResolvedValue({ count: 0 });
 	mockPrisma.networkQuotaReservation.deleteMany.mockReset();
 	mockPrisma.network_members.updateMany.mockReset();
 	mockPrisma.billingOrder.updateMany.mockReset();
@@ -94,6 +131,7 @@ beforeEach(() => {
 	jest.mocked(fulfilPaidOrder).mockReset();
 	jest.mocked(queryAndReconcileAlipayOrder).mockReset();
 	jest.mocked(getAlipayRuntimeConfig).mockReset();
+	jest.mocked(disconnectUserSockets).mockReset();
 });
 
 describe("expiration maintenance", () => {
@@ -279,45 +317,143 @@ describe("expiration maintenance", () => {
 		expect(mockPrisma.network_members.updateMany).not.toHaveBeenCalled();
 	});
 
-	test("legacy expiration excludes every user that has a Subscription and deduplicates matches", async () => {
+	test("legacy expiration rechecks entitlement under the billing user lock", async () => {
+		mockPrisma.user.findMany.mockResolvedValue([{ id: "legacy-user" }]);
+		mockPrisma.user.findUnique.mockResolvedValue({
+			id: "legacy-user",
+			role: "USER",
+			isActive: true,
+			suspensionReason: "NONE",
+			expiresAt: NOW,
+			userGroup: null,
+			subscription: { id: "subscription-created-after-candidate-query" },
+			network: [],
+		});
+
+		await expect(checkAndDeactivateExpiredUsers(NOW)).resolves.toBe(0);
+
+		expect(mockPrisma.user.findMany).toHaveBeenCalledWith({
+			where: expect.objectContaining({
+				role: { not: "ADMIN" },
+				subscription: { is: null },
+			}),
+			select: { id: true },
+		});
+		expect(mockPrisma.$executeRaw.mock.calls[0]?.[1]).toBe("billing-user:legacy-user");
+		expect(mockPrisma.user.update).not.toHaveBeenCalled();
+		expect(mockPrisma.subscriptionSuspensionSnapshot.upsert).not.toHaveBeenCalled();
+	});
+
+	test("legacy expiration snapshots authorized members before controller suspension", async () => {
 		const expiredUser = {
 			id: "legacy-user",
 			role: "USER",
-			network: [],
+			isActive: true,
+			suspensionReason: "NONE",
+			expiresAt: NOW,
+			userGroup: null,
+			subscription: null,
+			network: [{ nwid: "network-1", networkMembers: [{ id: "member-1" }] }],
 		};
-		mockPrisma.user.findMany.mockResolvedValueOnce([expiredUser]).mockResolvedValueOnce([
-			{
-				...expiredUser,
-				userGroup: { name: "Legacy", expiresAt: NOW },
-			},
+		mockPrisma.user.findMany.mockResolvedValue([{ id: "legacy-user" }]);
+		mockPrisma.user.findUnique.mockResolvedValue(expiredUser);
+		mockPrisma.subscriptionSuspensionSnapshot.upsert.mockResolvedValue({
+			id: "snapshot-1",
+		});
+		mockPrisma.subscriptionSuspensionSnapshot.findMany.mockResolvedValue([
+			{ id: "snapshot-1", networkId: "network-1", memberId: "member-1" },
 		]);
+		mockPrisma.subscriptionSuspensionSnapshot.update.mockResolvedValue({
+			id: "snapshot-1",
+		});
+		jest.mocked(ztController.member_update).mockResolvedValue({} as never);
 		mockPrisma.user.update.mockResolvedValue({ id: "legacy-user" });
+		mockPrisma.network_members.updateMany.mockResolvedValue({ count: 1 });
 
 		await expect(checkAndDeactivateExpiredUsers(NOW)).resolves.toBe(1);
 
-		expect(mockPrisma.user.findMany).toHaveBeenNthCalledWith(
-			1,
+		expect(mockPrisma.subscriptionSuspensionSnapshot.upsert).toHaveBeenCalledWith({
+			where: {
+				userId_networkId_memberId: {
+					userId: "legacy-user",
+					networkId: "network-1",
+					memberId: "member-1",
+				},
+			},
+			create: {
+				userId: "legacy-user",
+				networkId: "network-1",
+				memberId: "member-1",
+				wasAuthorized: true,
+			},
+			update: {
+				subscriptionId: null,
+				wasAuthorized: true,
+				suspendedAt: null,
+				restoredAt: null,
+				lastError: null,
+			},
+		});
+		expect(ztController.member_update).toHaveBeenCalledWith(
 			expect.objectContaining({
-				where: expect.objectContaining({
-					expiresAt: { lte: NOW },
-					subscription: { is: null },
-				}),
+				nwid: "network-1",
+				memberId: "member-1",
+				updateParams: { authorized: false },
 			}),
 		);
-		expect(mockPrisma.user.findMany).toHaveBeenNthCalledWith(
-			2,
-			expect.objectContaining({
-				where: expect.objectContaining({
-					subscription: { is: null },
-					userGroup: { expiresAt: { lte: NOW } },
-				}),
-			}),
-		);
-		expect(mockPrisma.user.update).toHaveBeenCalledTimes(1);
+		expect(mockPrisma.subscriptionSuspensionSnapshot.update).toHaveBeenCalledWith({
+			where: { id: "snapshot-1" },
+			data: { suspendedAt: NOW, lastError: null },
+		});
 		expect(mockPrisma.user.update).toHaveBeenCalledWith({
 			where: { id: "legacy-user" },
+			data: { isActive: false, suspensionReason: "SUBSCRIPTION_EXPIRED" },
+		});
+		expect(mockPrisma.aPIToken.updateMany).toHaveBeenCalledWith({
+			where: { userId: "legacy-user", isActive: true },
 			data: { isActive: false },
 		});
+		expect(mockPrisma.session.deleteMany).toHaveBeenCalledWith({
+			where: { userId: "legacy-user" },
+		});
+		expect(mockPrisma.network_members.updateMany).toHaveBeenCalledWith({
+			where: { id: "member-1", nwid: "network-1" },
+			data: { authorized: false },
+		});
+		expect(disconnectUserSockets).toHaveBeenCalledWith("legacy-user");
+	});
+
+	test("legacy controller failures leave a retryable snapshot and cached authorization", async () => {
+		mockPrisma.user.findMany.mockResolvedValue([{ id: "legacy-user" }]);
+		mockPrisma.user.findUnique.mockResolvedValue({
+			id: "legacy-user",
+			role: "USER",
+			isActive: false,
+			suspensionReason: "SUBSCRIPTION_EXPIRED",
+			expiresAt: NOW,
+			userGroup: null,
+			subscription: null,
+			network: [],
+		});
+		mockPrisma.subscriptionSuspensionSnapshot.findMany.mockResolvedValue([
+			{ id: "snapshot-1", networkId: "network-1", memberId: "member-1" },
+		]);
+		mockPrisma.subscriptionSuspensionSnapshot.update.mockResolvedValue({
+			id: "snapshot-1",
+		});
+		jest
+			.mocked(ztController.member_update)
+			.mockRejectedValue(new Error("controller unavailable"));
+		const consoleError = jest.spyOn(console, "error").mockImplementation(() => undefined);
+
+		await expect(checkAndDeactivateExpiredUsers(NOW)).resolves.toBe(1);
+
+		expect(mockPrisma.network_members.updateMany).not.toHaveBeenCalled();
+		expect(mockPrisma.subscriptionSuspensionSnapshot.update).toHaveBeenCalledWith({
+			where: { id: "snapshot-1" },
+			data: { lastError: "controller unavailable" },
+		});
+		consoleError.mockRestore();
 	});
 
 	test("schedules expiration maintenance every minute", async () => {

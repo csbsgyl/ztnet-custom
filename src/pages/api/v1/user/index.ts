@@ -7,7 +7,7 @@ import { AuthorizationType } from "~/types/apiTypes";
 import { decryptAndVerifyToken } from "~/utils/encryption";
 import { handleApiErrors } from "~/utils/errors";
 import rateLimit, { RATE_LIMIT_CONFIG } from "~/utils/rateLimit";
-import { createUserSchema } from "./_schema";
+import { createUserSchema } from "~/server/api/schemas/v1/user";
 
 // Rate limit using environment configuration
 const limiter = rateLimit({

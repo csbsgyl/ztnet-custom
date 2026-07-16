@@ -12,6 +12,11 @@ import { cleanupExpiredNetworkQuotaReservations } from "~/server/billing/entitle
 import { getAlipayRuntimeConfig } from "~/server/billing/config";
 import { queryAndReconcileAlipayOrder } from "~/server/billing/payment";
 import { fulfilPaidOrder } from "~/server/billing/runtime";
+import { disconnectUserSockets } from "~/server/socketRegistry";
+import {
+	MANUAL_SUSPENSION_REASON,
+	SUBSCRIPTION_EXPIRED_REASON,
+} from "~/server/billing/entitlements";
 
 type FakeContext = {
 	session: {
@@ -29,137 +34,171 @@ type FakeContext = {
 export const checkAndDeactivateExpiredUsers = async (
 	now = new Date(),
 ): Promise<number> => {
-	// Check for individually expired users
-	const expUsers = await prisma.user.findMany({
+	const candidates = await prisma.user.findMany({
 		where: {
-			expiresAt: {
-				lte: now,
-			},
-			isActive: true,
-			NOT: {
-				role: "ADMIN",
-			},
-			// Once billing has created a Subscription, only the subscription
-			// suspension workflow owns expiration for that account.
+			role: { not: "ADMIN" },
 			subscription: { is: null },
-		},
-		select: {
-			network: true,
-			id: true,
-			role: true,
-		},
-	});
-
-	// Check for users in expired groups
-	const usersInExpiredGroups = await prisma.user.findMany({
-		where: {
-			isActive: true,
-			NOT: {
-				role: "ADMIN",
-			},
-			subscription: { is: null },
-			userGroup: {
-				expiresAt: {
-					lte: now,
+			AND: [
+				{
+					OR: [{ expiresAt: { lte: now } }, { userGroup: { expiresAt: { lte: now } } }],
 				},
-			},
-		},
-		select: {
-			network: true,
-			id: true,
-			role: true,
-			userGroup: {
-				select: {
-					name: true,
-					expiresAt: true,
-				},
-			},
-		},
-	});
-
-	// Combine both expired user types (need to type them properly)
-	const allExpiredUsers = new Map<
-		string,
-		{
-			network: Array<{ nwid: string }>;
-			id: string;
-			role: string;
-			userGroup?: {
-				name: string;
-				expiresAt: Date | null;
-			} | null;
-		}
-	>();
-	for (const user of expUsers) {
-		allExpiredUsers.set(user.id, { ...user, userGroup: undefined });
-	}
-	for (const user of usersInExpiredGroups) {
-		allExpiredUsers.set(user.id, user);
-	}
-
-	// if no users return
-	if (allExpiredUsers.size === 0) return 0;
-
-	for (const userObj of allExpiredUsers.values()) {
-		if (userObj.role === "ADMIN") continue;
-
-		const context: FakeContext = {
-			session: {
-				user: {
-					id: userObj.id,
-				},
-			},
-		};
-
-		// Deauthorize all network members for this user
-		for (const network of userObj.network) {
-			try {
-				const members = await ztController.network_members(
-					// @ts-ignore
-					context,
-					network.nwid,
-					false,
-				);
-				for (const member in members) {
-					const ctx = {
-						session: {
-							user: {
-								id: userObj.id,
+				{
+					OR: [
+						{ isActive: true },
+						{
+							isActive: false,
+							suspensionReason: SUBSCRIPTION_EXPIRED_REASON,
+							suspensionSnapshots: {
+								some: {
+									subscriptionId: null,
+									wasAuthorized: true,
+									suspendedAt: null,
+									restoredAt: null,
+								},
 							},
 						},
-					};
-					await ztController.member_update({
-						// @ts-ignore
-						ctx,
-						nwid: network.nwid,
-						central: false,
-						memberId: member,
-						updateParams: {
-							authorized: false,
+					],
+				},
+			],
+		},
+		select: { id: true },
+	});
+	let processed = 0;
+	for (const candidate of candidates) {
+		const prepared = await prisma.$transaction(async (transaction) => {
+			const userLockKey = `billing-user:${candidate.id}`;
+			await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userLockKey}))`;
+			const user = await transaction.user.findUnique({
+				where: { id: candidate.id },
+				select: {
+					id: true,
+					role: true,
+					isActive: true,
+					suspensionReason: true,
+					expiresAt: true,
+					userGroup: { select: { expiresAt: true } },
+					subscription: { select: { id: true } },
+					network: {
+						select: {
+							nwid: true,
+							networkMembers: {
+								where: {
+									authorized: true,
+									deleted: false,
+									permanentlyDeleted: false,
+								},
+								select: { id: true },
+							},
+						},
+					},
+				},
+			});
+			if (!user || user.role === "ADMIN" || user.subscription) return null;
+			if (
+				user.suspensionReason === MANUAL_SUSPENSION_REASON ||
+				user.suspensionReason === "ADMIN"
+			) {
+				return null;
+			}
+			const expired =
+				Boolean(user.expiresAt && user.expiresAt <= now) ||
+				Boolean(user.userGroup?.expiresAt && user.userGroup.expiresAt <= now);
+			if (!expired) return null;
+			if (!user.isActive && user.suspensionReason !== SUBSCRIPTION_EXPIRED_REASON) {
+				return null;
+			}
+
+			for (const network of user.network) {
+				for (const member of network.networkMembers) {
+					await transaction.subscriptionSuspensionSnapshot.upsert({
+						where: {
+							userId_networkId_memberId: {
+								userId: user.id,
+								networkId: network.nwid,
+								memberId: member.id,
+							},
+						},
+						create: {
+							userId: user.id,
+							networkId: network.nwid,
+							memberId: member.id,
+							wasAuthorized: true,
+						},
+						update: {
+							subscriptionId: null,
+							wasAuthorized: true,
+							suspendedAt: null,
+							restoredAt: null,
+							lastError: null,
 						},
 					});
 				}
+			}
+
+			const pending = await transaction.subscriptionSuspensionSnapshot.findMany({
+				where: {
+					userId: user.id,
+					subscriptionId: null,
+					wasAuthorized: true,
+					suspendedAt: null,
+					restoredAt: null,
+				},
+				select: { id: true, networkId: true, memberId: true },
+			});
+			await transaction.user.update({
+				where: { id: user.id },
+				data: {
+					isActive: false,
+					suspensionReason: SUBSCRIPTION_EXPIRED_REASON,
+				},
+			});
+			await transaction.aPIToken.updateMany({
+				where: { userId: user.id, isActive: true },
+				data: { isActive: false },
+			});
+			await transaction.session.deleteMany({ where: { userId: user.id } });
+			return { userId: user.id, pending };
+		});
+		if (!prepared) continue;
+		processed += 1;
+		disconnectUserSockets(prepared.userId);
+
+		for (const snapshot of prepared.pending) {
+			try {
+				const context: FakeContext = {
+					session: { user: { id: prepared.userId } },
+				};
+				await ztController.member_update({
+					ctx: context as never,
+					nwid: snapshot.networkId,
+					central: false,
+					memberId: snapshot.memberId,
+					updateParams: { authorized: false },
+				});
+				await prisma.network_members.updateMany({
+					where: { id: snapshot.memberId, nwid: snapshot.networkId },
+					data: { authorized: false },
+				});
+				await prisma.subscriptionSuspensionSnapshot.update({
+					where: { id: snapshot.id },
+					data: { suspendedAt: now, lastError: null },
+				});
 			} catch (error) {
-				// Continue with other networks if one fails
+				await prisma.subscriptionSuspensionSnapshot.update({
+					where: { id: snapshot.id },
+					data: {
+						lastError: error instanceof Error ? error.message : String(error),
+					},
+				});
 				console.error(
-					`Failed to deauthorize members for network ${network.nwid}:`,
+					`Failed to deauthorize member ${snapshot.memberId} in network ${snapshot.networkId}:`,
 					error,
 				);
 			}
 		}
-
-		// update user isActive to false
-		await prisma.user.update({
-			where: {
-				id: userObj.id,
-			},
-			data: {
-				isActive: false,
-			},
-		});
 	}
 
-	return allExpiredUsers.size;
+	return processed;
 };
 
 async function updateSubscriptionMember({

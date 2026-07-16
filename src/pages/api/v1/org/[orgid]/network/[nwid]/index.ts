@@ -6,7 +6,10 @@ import { SecuredOrganizationApiRoute } from "~/utils/apiRouteAuth";
 import { handleApiErrors } from "~/utils/errors";
 import rateLimit, { RATE_LIMIT_CONFIG } from "~/utils/rateLimit";
 import * as ztController from "~/utils/ztApi";
-import { HandlerContextSchema, NetworkUpdateSchema } from "./_schema";
+import {
+	HandlerContextSchema,
+	NetworkUpdateSchema,
+} from "~/server/api/schemas/v1/organizationNetworkById";
 
 // Rate limit using environment configuration
 const limiter = rateLimit({

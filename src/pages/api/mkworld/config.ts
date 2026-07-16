@@ -1,18 +1,19 @@
-import { NextApiRequest, NextApiResponse } from "next";
-import fs from "fs";
-import path from "path";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import archiver from "archiver";
 import formidable from "formidable";
-import { promises as fsPromises } from "fs";
+import type { NextApiRequest, NextApiResponse } from "next";
+import { requireAdministrator } from "~/server/api/auth/adminApi";
 import { prisma } from "~/server/db";
-import unzipper from "unzipper";
-import { PassThrough } from "stream";
-import { execSync } from "child_process";
+import { parsePlanetArchive } from "~/server/planetArchive";
+import { activatePreparedPlanet } from "~/server/planetFiles";
+import { readPlanetWorldDownloadEntries } from "~/server/planetWorldFiles";
 import { updateLocalConf } from "~/utils/planet";
-import { ZT_FOLDER } from "~/utils/ztApi";
-import { WorldConfig } from "~/types/worldConfig";
-import { auth } from "~/lib/auth";
-import { fromNodeHeaders } from "better-auth/node";
+import { ZT_FOLDER } from "~/utils/ztPaths";
+
+const MAX_WORLD_ARCHIVE_BYTES = 10 * 1024 * 1024;
+const ZTMKWORLD_BINARY = "/usr/local/bin/ztmkworld";
 
 export const config = {
 	api: {
@@ -20,275 +21,204 @@ export const config = {
 	},
 };
 
-export default async (req: NextApiRequest, res: NextApiResponse) => {
-	const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-	if (!session) {
-		res.status(401).json({ message: "Authorization Error" });
-		return;
+async function downloadWorld(res: NextApiResponse): Promise<void> {
+	const folderPath = path.join(/* turbopackIgnore: true */ ZT_FOLDER, "zt-mkworld");
+	const entries = readPlanetWorldDownloadEntries(folderPath);
+
+	res.setHeader("Content-Disposition", "attachment; filename=zt-mkworld.zip");
+	res.setHeader("Content-Type", "application/zip");
+	res.setHeader("Cache-Control", "private, no-store, max-age=0");
+	res.setHeader("X-Content-Type-Options", "nosniff");
+
+	await new Promise<void>((resolve) => {
+		const archive = archiver("zip", { zlib: { level: 9 } });
+		let settled = false;
+		const finish = () => {
+			if (settled) return;
+			settled = true;
+			resolve();
+		};
+		archive.once("warning", (error) => {
+			console.error("Unable to archive Planet configuration", error);
+			if (!res.headersSent) res.status(500).end();
+			else res.destroy(error);
+			finish();
+		});
+		archive.once("error", (error) => {
+			console.error("Unable to archive Planet configuration", error);
+			if (!res.headersSent) res.status(500).end();
+			else res.destroy(error);
+			finish();
+		});
+		res.once("finish", finish);
+		res.once("close", finish);
+		archive.pipe(res);
+		for (const entry of entries) {
+			archive.append(entry.data, { name: entry.name });
+		}
+		void archive.finalize();
+	});
+}
+
+async function importWorld(req: NextApiRequest, res: NextApiResponse): Promise<void> {
+	const form = formidable({
+		uploadDir: "/tmp",
+		keepExtensions: false,
+		maxFiles: 1,
+		maxFileSize: MAX_WORLD_ARCHIVE_BYTES,
+		maxTotalFileSize: MAX_WORLD_ARCHIVE_BYTES,
+	});
+	let uploadedFilePath: string | undefined;
+	form.on("fileBegin", (_name, file) => {
+		uploadedFilePath = file.filepath;
+	});
+
+	let stagingDirectory: string | undefined;
+
+	try {
+		const [_fields, files] = await form.parse(req);
+		const uploadedFile = files.file?.[0];
+		uploadedFilePath = uploadedFile?.filepath || uploadedFilePath;
+		if (!uploadedFilePath) {
+			res.status(400).json({ error: "No file uploaded." });
+			return;
+		}
+		if (!fs.existsSync(/* turbopackIgnore: true */ ZTMKWORLD_BINARY)) {
+			throw new Error("ztmkworld is not available in this installation.");
+		}
+
+		const imported = await parsePlanetArchive(uploadedFilePath);
+		const worldDirectory = path.join(/* turbopackIgnore: true */ ZT_FOLDER, "zt-mkworld");
+		stagingDirectory = fs.mkdtempSync(
+			path.join(/* turbopackIgnore: true */ ZT_FOLDER, ".zt-mkworld-import-"),
+		);
+		fs.writeFileSync(
+			path.join(/* turbopackIgnore: true */ stagingDirectory, "mkworld.config.json"),
+			JSON.stringify(imported.config, null, 2),
+			{ mode: 0o600 },
+		);
+
+		for (const keyName of ["current.c25519", "previous.c25519"] as const) {
+			const importedKey = imported.keyFiles.get(keyName);
+			const existingKeyPath = path.join(
+				/* turbopackIgnore: true */ worldDirectory,
+				keyName,
+			);
+			if (importedKey) {
+				fs.writeFileSync(
+					path.join(/* turbopackIgnore: true */ stagingDirectory, keyName),
+					importedKey,
+					{ mode: 0o600 },
+				);
+			} else if (
+				fs
+					.lstatSync(/* turbopackIgnore: true */ existingKeyPath, {
+						throwIfNoEntry: false,
+					})
+					?.isFile()
+			) {
+				const stagedKeyPath = path.join(
+					/* turbopackIgnore: true */ stagingDirectory,
+					keyName,
+				);
+				fs.copyFileSync(/* turbopackIgnore: true */ existingKeyPath, stagedKeyPath);
+				fs.chmodSync(/* turbopackIgnore: true */ stagedKeyPath, 0o600);
+			}
+		}
+
+		execFileSync(
+			ZTMKWORLD_BINARY,
+			[
+				"-c",
+				path.join(/* turbopackIgnore: true */ stagingDirectory, "mkworld.config.json"),
+			],
+			{
+				cwd: stagingDirectory,
+				stdio: ["ignore", "ignore", "pipe"],
+				timeout: 60_000,
+			},
+		);
+		const generatedPlanet = path.join(
+			/* turbopackIgnore: true */ stagingDirectory,
+			"planet.custom",
+		);
+		const generatedStats = fs.lstatSync(/* turbopackIgnore: true */ generatedPlanet, {
+			throwIfNoEntry: false,
+		});
+		if (!generatedStats?.isFile() || generatedStats.size === 0) {
+			throw new Error("ztmkworld did not create a valid Planet file.");
+		}
+
+		await activatePreparedPlanet({
+			ztFolder: ZT_FOLDER,
+			stagedWorldDirectory: stagingDirectory,
+			ports: imported.ports,
+			updatePorts: updateLocalConf,
+			commitDatabase: () =>
+				prisma.$transaction(async (tx) => {
+					await tx.planet.upsert({
+						where: { id: 1 },
+						update: {
+							globalOptions: { connect: { id: 1 } },
+							plBirth: imported.config.plBirth,
+							plID: imported.config.plID,
+							plRecommend: imported.config.plRecommend,
+							rootNodes: {
+								deleteMany: {},
+								create: imported.config.rootNodes,
+							},
+						},
+						create: {
+							id: 1,
+							globalOptions: { connect: { id: 1 } },
+							plBirth: imported.config.plBirth,
+							plID: imported.config.plID,
+							plRecommend: imported.config.plRecommend,
+							rootNodes: { create: imported.config.rootNodes },
+						},
+					});
+					await tx.globalOptions.update({
+						where: { id: 1 },
+						data: { customPlanetUsed: true },
+					});
+				}),
+		});
+		stagingDirectory = undefined;
+		res.status(200).json({ message: "Planet configuration imported successfully." });
+	} catch (error) {
+		console.error("Unable to import Planet configuration", error);
+		res.status(400).json({
+			error:
+				error instanceof Error ? error.message : "Unable to import Planet configuration.",
+		});
+	} finally {
+		if (uploadedFilePath) {
+			fs.rmSync(/* turbopackIgnore: true */ uploadedFilePath, { force: true });
+		}
+		if (stagingDirectory) {
+			fs.rmSync(/* turbopackIgnore: true */ stagingDirectory, {
+				recursive: true,
+				force: true,
+			});
+		}
 	}
+}
+
+export default async function worldConfig(req: NextApiRequest, res: NextApiResponse) {
+	if (req.method !== "GET" && req.method !== "POST") {
+		res.setHeader("Allow", "GET, POST");
+		return res.status(405).json({ error: "Method Not Allowed" });
+	}
+	if (!(await requireAdministrator(req, res))) return;
 
 	if (req.method === "GET") {
 		try {
-			const folderPath = path.resolve(`${ZT_FOLDER}/zt-mkworld`);
-
-			// Check if the directory exists
-			if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
-				return res.status(404).send("Folder not found.");
-			}
-
-			// Create a zip archive using the `archiver` library
-			const archive = archiver("zip", {
-				zlib: { level: 9 },
-			});
-
-			// Catch warnings (e.g. stat failures and other non-blocking errors)
-			archive.on("warning", (err) => {
-				if (err.code === "ENOENT") {
-					console.warn(err);
-				} else {
-					throw err;
-				}
-			});
-
-			// Catch any other error
-			archive.on("error", (err) => {
-				throw err;
-			});
-
-			// Set the headers
-			res.setHeader("Content-Disposition", "attachment; filename=zt-mkworld.zip");
-			res.setHeader("Content-Type", "application/zip");
-
-			// Stream the archive data to the response object
-			archive.pipe(res);
-
-			// Append all files from the directory to the zip
-			archive.directory(folderPath, false);
-			archive.finalize();
+			await downloadWorld(res);
 		} catch (error) {
-			console.error(error);
-			res.status(500).send("Internal Server Error.");
+			console.error("Unable to download Planet configuration", error);
+			if (!res.headersSent) res.status(500).send("Internal Server Error.");
 		}
+		return;
 	}
-
-	if (req.method === "POST") {
-		return new Promise<void>((resolve, reject) => {
-			const mkworldDir = `${ZT_FOLDER}/zt-mkworld`;
-			const ztmkworldBinPath = "/usr/local/bin/ztmkworld";
-			const planetPath = `${ZT_FOLDER}/planet`;
-			const backupDir = `${ZT_FOLDER}/planet_backup`;
-
-			const uploadDir = "/tmp";
-			const form = formidable({
-				uploadDir,
-				keepExtensions: true,
-			});
-
-			form.parse(req, async (err, _fields, files) => {
-				if (err) {
-					console.error("Error parsing the form:", err);
-					res.status(500).json({ error: "Error parsing the form." });
-					return resolve();
-				}
-
-				const uploadedFilePath = files?.file[0]?.filepath;
-				if (!uploadedFilePath) {
-					res.status(400).json({ error: "No file uploaded." });
-					return resolve();
-				}
-
-				// formidable stores the upload inside uploadDir; ensure the resolved
-				// path stays within it before reading, so a manipulated filepath can't
-				// be used to read arbitrary files on disk.
-				const resolvedUploadPath = path.resolve(uploadedFilePath);
-				if (!resolvedUploadPath.startsWith(path.resolve(uploadDir) + path.sep)) {
-					res.status(400).json({ error: "Invalid upload path." });
-					return resolve();
-				}
-
-				try {
-					await fsPromises.mkdir(mkworldDir, { recursive: true });
-
-					const requiredFiles = ["mkworld.config.json"];
-					const optionalFiles = ["current.c25519", "previous.c25519", "planet.custom"];
-					const foundFiles = [];
-
-					fs.createReadStream(resolvedUploadPath)
-						.pipe(unzipper.Parse())
-						.on("entry", (entry) => {
-							const fileName = entry.path;
-							let jsonContent = "";
-
-							if (requiredFiles.includes(fileName) || optionalFiles.includes(fileName)) {
-								foundFiles.push(fileName);
-								if (fileName === "mkworld.config.json") {
-									const pass = new PassThrough();
-
-									entry
-										.pipe(pass)
-										.on("data", (chunk) => {
-											jsonContent += chunk;
-										})
-										.on("end", async () => {
-											try {
-												/*
-												 *
-												 * parse json content from the uploaded file
-												 *
-												 */
-												const parsedContent = JSON.parse(jsonContent);
-
-												/*
-												 *
-												 * Mock the mkworld.config.json file and write it to the file system
-												 *
-												 */
-												const config: WorldConfig = {
-													rootNodes: parsedContent?.rootNodes.map((node) => ({
-														comments: node.comments || "ztnet.network",
-														identity: node.identity,
-														endpoints: node.endpoints,
-													})),
-													signing: ["previous.c25519", "current.c25519"],
-													output: "planet.custom",
-													plID: parsedContent?.plID || 0,
-													plBirth: parsedContent?.plBirth || 0,
-													plRecommend: parsedContent?.plRecommend,
-												};
-
-												/*
-												 *
-												 * Update DB with the new planet config
-												 *
-												 */
-												await prisma.planet.upsert({
-													where: {
-														id: 1,
-													},
-													update: {
-														globalOptions: {
-															connect: {
-																id: 1,
-															},
-														},
-														// Data for updating an existing Planet
-														plBirth: parsedContent?.plBirth || 0,
-														plID: parsedContent?.plID || 0,
-														rootNodes: {
-															deleteMany: {},
-															create: config.rootNodes,
-														},
-													},
-													create: {
-														globalOptions: {
-															connect: {
-																id: 1,
-															},
-														},
-														// Data for creating a new Planet
-														plBirth: config.plBirth || 0,
-														plID: config.plID || 0,
-														rootNodes: {
-															create: config.rootNodes,
-														},
-													},
-												});
-
-												/*
-												 *
-												 * Update local.conf file with the new port number
-												 *
-												 */
-
-												// Extract the port number from the endpoint string
-												const portNumbers = parsedContent?.rootNodes[0].endpoints[0]
-													.split(",")
-													.map((endpoint) =>
-														parseInt(endpoint.split("/").pop() || "", 10),
-													);
-
-												try {
-													await updateLocalConf(portNumbers);
-												} catch (_error) {
-													res.status(400).json({
-														error: "Error parsing mkworld.config.json",
-													});
-												}
-
-												prisma.$disconnect();
-											} catch (e) {
-												console.error("Error parsing mkworld.config.json:", e);
-												res.status(400).json({
-													error: "Error parsing mkworld.config.json",
-												});
-											}
-										});
-
-									pass.pipe(
-										fs.createWriteStream(path.join(mkworldDir, path.basename(fileName))),
-									);
-								} else {
-									// Extract other files to the target directory
-									entry.pipe(
-										fs.createWriteStream(path.join(mkworldDir, path.basename(fileName))),
-									);
-								}
-							} else {
-								entry.autodrain();
-							}
-						})
-						.on("close", async () => {
-							if (requiredFiles.every((file) => foundFiles.includes(file))) {
-								try {
-									// Backup existing planet file if it exists
-									if (fs.existsSync(planetPath)) {
-										// we only backup the orginal planet file once
-										if (!fs.existsSync(backupDir)) {
-											fs.mkdirSync(backupDir);
-
-											const timestamp = new Date()
-												.toISOString()
-												.replace(/[^a-zA-Z0-9]/g, "_");
-											fs.copyFileSync(planetPath, `${backupDir}/planet.bak.${timestamp}`);
-										}
-									}
-									execSync(
-										`cd ${mkworldDir} && ${ztmkworldBinPath} -c ${mkworldDir}/mkworld.config.json`,
-									);
-
-									// Copy generated planet file
-									fs.copyFileSync(`${mkworldDir}/planet.custom`, planetPath);
-								} catch (e) {
-									console.error("Error running ztmkworld:", e);
-									res.status(400).json({
-										error: "Error running ztmkworld",
-									});
-									return resolve();
-								}
-
-								res.status(200).json({
-									message: "File uploaded and extracted successfully.",
-								});
-								resolve();
-							} else {
-								const missingFiles = requiredFiles.filter(
-									(file) => !foundFiles.includes(file),
-								);
-								console.error("Missing required files in the zip:", missingFiles);
-								res.status(400).json({
-									error: "Missing required files in the zip.",
-									files: missingFiles,
-								});
-								resolve();
-							}
-						});
-				} catch (error) {
-					console.error("Error processing the uploaded file:", error);
-					res.status(500).json({ error: "Internal Server Error." });
-					reject();
-				}
-			});
-		});
-	}
-	// res.status(500).json({ error: "Bad Request" });
-};
+	await importWorld(req, res);
+}

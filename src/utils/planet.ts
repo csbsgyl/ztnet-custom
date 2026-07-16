@@ -1,5 +1,5 @@
 import fs from "fs";
-import { ZT_FOLDER } from "./ztApi";
+import { ZT_FOLDER } from "./ztPaths";
 
 interface LocalConf {
 	settings?: {
@@ -20,7 +20,10 @@ export const updateLocalConf = (portNumbers: number[]): Promise<boolean> => {
 		let localConf: LocalConf;
 
 		try {
-			const localConfContent = fs.readFileSync(localConfPath, "utf8");
+			const localConfContent = fs.readFileSync(
+				/* turbopackIgnore: true */ localConfPath,
+				"utf8",
+			);
 			localConf = localConfContent ? JSON.parse(localConfContent) : null;
 		} catch (err) {
 			if (err.code === "ENOENT") {
@@ -45,7 +48,10 @@ export const updateLocalConf = (portNumbers: number[]): Promise<boolean> => {
 				const { secondaryPort, allowSecondaryPort, ...restSettings } = localConf.settings;
 				localConf.settings = restSettings;
 			}
-			fs.writeFileSync(localConfPath, JSON.stringify(localConf, null, 2));
+			fs.writeFileSync(
+				/* turbopackIgnore: true */ localConfPath,
+				JSON.stringify(localConf, null, 2),
+			);
 			resolve(true);
 		} else {
 			reject('Error: "primaryPort" key does not exist in zerotier-one/local.conf file');

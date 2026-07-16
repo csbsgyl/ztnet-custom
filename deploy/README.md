@@ -184,6 +184,7 @@ Supported environment variables:
 | `AUTO_UPDATE_CLEANUP` | `false` | Remove replaced images after a successful update. |
 | `UPDATE_API_URL` | `http://updater:8080` | Private Compose-network URL used by the admin update page. |
 | `UPDATE_API_TOKEN` | random | Private token shared by ZTNET and Watchtower; generated once and preserved. |
+| `BACKUP_DIR` | `/app/backups` | Persistent in-container path for server-side backup archives. |
 | `UPDATER_IMAGE` | `nickfedor/watchtower:1.19.0` | Background updater image. |
 | `UPDATER_MIRROR_IMAGE` | auto-generated | Override the Docker mirror image selected for the updater. |
 
@@ -224,4 +225,5 @@ Candidate fallback begins after the current `docker pull` exits. If a broken net
 - The ZTNET web container does not receive the Docker socket. Manual update requests use a token-protected Watchtower endpoint available only on the private Compose network; port `8080` is not published on the host.
 - Automatic updates require a mutable image tag such as `latest`; digest-pinned images intentionally do not move to newer releases.
 - Keep database backups. Application releases may include database migrations even though the PostgreSQL container itself is not updated.
+- One-click deployments bind-mount `/opt/ztnet-custom/backups` into the app. Keep an additional downloaded copy off the server.
 - If you prefer manual deployment, copy `deploy/docker-compose.yml` and create a `.env` file from the variable list above.

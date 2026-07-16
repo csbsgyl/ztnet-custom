@@ -1,5 +1,45 @@
 import { describe, test, expect, jest } from "@jest/globals";
-import { getReadableSmtpError, getSmtpEncryptionConfig } from "../mail";
+import {
+	getReadableSmtpError,
+	getSmtpEncryptionConfig,
+	renderMailTemplate,
+} from "../mail";
+
+describe("renderMailTemplate", () => {
+	test("renders escaped and explicit raw placeholders without executing code", () => {
+		expect(
+			renderMailTemplate(
+				{
+					subject: "Hello <%= user.name %>",
+					body: "<%= content %>|<%- trustedHtml %>",
+				},
+				{
+					user: { name: "A & B" },
+					content: '<script>alert("x")</script>',
+					trustedHtml: "<strong>ok</strong>",
+				},
+			),
+		).toEqual({
+			subject: "Hello A &amp; B",
+			body: "&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;|<strong>ok</strong>",
+		});
+	});
+
+	test("rejects executable template expressions", () => {
+		expect(() =>
+			renderMailTemplate({ subject: "<% process.exit() %>", body: "ok" }, {}),
+		).toThrow(/executable mail template expressions/i);
+	});
+
+	test("rejects missing and prototype-chain template values", () => {
+		expect(() =>
+			renderMailTemplate({ subject: "<%= missing %>", body: "ok" }, {}),
+		).toThrow(/missing template value/i);
+		expect(() =>
+			renderMailTemplate({ subject: "<%= user.__proto__ %>", body: "ok" }, { user: {} }),
+		).toThrow(/missing template value/i);
+	});
+});
 
 /**
  * Tests for getReadableSmtpError function

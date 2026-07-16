@@ -670,14 +670,17 @@
 				"planDeleted": "套餐已删除或归档下架。",
 				"orderQueried": "已同步支付宝最新订单状态。",
 				"renewed": "订阅已续费。",
-				"alipaySaved": "支付宝配置已保存。"
+				"alipaySaved": "支付宝配置已保存。",
+				"assignmentSaved": "套餐和到期时间已保存。",
+				"assignmentRestorePartial": "套餐已保存，但部分暂停的网络成员恢复失败。请检查控制器后重试。"
 			},
 			"validation": {
 				"plan": "请完整填写套餐信息并使用有效数值。",
 				"renewal": "请选择用户和套餐，并填写有效的续费信息。",
 				"alipay": "启用支付前请完整填写支付宝必要凭据。",
 				"alipayFee": "手续费请输入 0 到 100，最多保留两位小数。",
-				"alipayCallbacks": "请输入不带路径的有效 HTTP/HTTPS 域名（可带端口）；启用支付时两个回调域名都不能为空。"
+				"alipayCallbacks": "请输入不带路径的有效 HTTP/HTTPS 域名（可带端口）；启用支付时两个回调域名都不能为空。",
+				"assignment": "请选择套餐并设置一个未来的到期日期。"
 			},
 			"metrics": {
 				"activeSubscriptions": "生效订阅",
@@ -1240,6 +1243,7 @@
 				"warning": "恢复将覆盖您当前的数据。请确保先创建备份！",
 				"restoreDatabase": "恢复数据库",
 				"restoreZerotier": "恢复 ZeroTier 文件夹",
+				"dockerOfflineWarning": "Docker 环境必须离线恢复 ZeroTier 文件。请先停止 ztnet 和 zerotier 服务，并按照灾难恢复文档操作。",
 				"selectFile": "选择备份文件",
 				"selectedFile": "已选择文件：{fileName} ({size})",
 				"restoreButton": "从文件恢复",

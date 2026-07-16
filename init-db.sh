@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Enable error handling and debug tracing
+# Keep the generated runtime environment file private and stop on errors.
 set -e
+umask 077
 # set -x  ( DEBUG )
 
 error_handling() {
@@ -10,8 +11,6 @@ error_handling() {
 }
 # trap errors
 trap error_handling ERR
-
-cmd="$@"
 
 # Create .env file
 echo "Creating .env file..."
@@ -61,4 +60,4 @@ npx prisma db seed
 echo "Database seeded successfully!"
 
 echo "Executing command"
-exec $cmd
+exec "$@"

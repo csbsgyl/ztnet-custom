@@ -2,7 +2,6 @@ import nodemailer, { type TransportOptions } from "nodemailer";
 import { throwError } from "~/server/helpers/errorHandler";
 import { SMTP_SECRET, decrypt, generateInstanceSecret } from "./encryption";
 import { prisma } from "~/server/db";
-import ejs from "ejs";
 import { GlobalOptions, UserOptions } from "@prisma/client";
 import { MailTemplateKey } from "./enums";
 
@@ -121,9 +120,62 @@ export const mailTemplateMap = {
 	deviceIpChangeNotificationTemplate,
 } as const;
 
-interface EmailTemplate {
+export interface EmailTemplate {
 	subject: string;
 	body: string;
+}
+
+const TEMPLATE_PLACEHOLDER = /<%([=-])\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*%>/g;
+const BLOCKED_TEMPLATE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+const HTML_ESCAPES: Readonly<Record<string, string>> = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	'"': "&#34;",
+	"'": "&#39;",
+};
+
+function templateValue(data: Record<string, unknown>, path: string): unknown {
+	let value: unknown = data;
+	for (const key of path.split(".")) {
+		if (
+			BLOCKED_TEMPLATE_KEYS.has(key) ||
+			!value ||
+			typeof value !== "object" ||
+			!Object.prototype.hasOwnProperty.call(value, key)
+		) {
+			throw new Error(`Missing template value: ${path}`);
+		}
+		value = (value as Record<string, unknown>)[key];
+	}
+	return value;
+}
+
+function escapeTemplateHtml(value: string): string {
+	return value.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character);
+}
+
+function renderTemplateField(field: string, data: Record<string, unknown>): string {
+	const unsupported = field.replace(TEMPLATE_PLACEHOLDER, "");
+	if (/<%[\s\S]*?%>/.test(unsupported)) {
+		throw new Error("Executable mail template expressions are not supported.");
+	}
+
+	return field.replace(TEMPLATE_PLACEHOLDER, (_match, mode: string, key: string) => {
+		const value = templateValue(data, key);
+		const rendered = value == null ? "" : String(value);
+		return mode === "-" ? rendered : escapeTemplateHtml(rendered);
+	});
+}
+
+export function renderMailTemplate(
+	template: EmailTemplate,
+	templateData: Record<string, unknown>,
+): EmailTemplate {
+	return {
+		subject: renderTemplateField(template.subject, templateData),
+		body: renderTemplateField(template.body, templateData),
+	};
 }
 
 interface EmailOptions {
@@ -153,11 +205,9 @@ export async function sendMailWithTemplate(
 
 	const template = await getTemplate(globalOptions, templateKey);
 
-	const renderedTemplate = await renderTemplate(template, options.templateData);
+	const renderedTemplate = renderMailTemplate(template, options.templateData);
 
 	const transporter = await createTransporter();
-
-	const parsedTemplate = parseRenderedTemplate(renderedTemplate);
 
 	const fromAddress = globalOptions.smtpFromName
 		? { name: globalOptions.smtpFromName, address: globalOptions.smtpEmail }
@@ -166,8 +216,8 @@ export async function sendMailWithTemplate(
 	const mailOptions = {
 		from: fromAddress,
 		to: options.to,
-		subject: parsedTemplate.subject,
-		html: parsedTemplate.body,
+		subject: renderedTemplate.subject,
+		html: renderedTemplate.body,
 	};
 
 	// If explicit synchronous sending is requested (sendInBackground === false), wait for the result
@@ -234,27 +284,6 @@ async function getTemplate(
 	} catch (error) {
 		console.error(`Failed to parse template '${templateKey}':`, error);
 		return defaultTemplate;
-	}
-}
-
-async function renderTemplate(
-	template: EmailTemplate,
-	templateData: Record<string, unknown>,
-): Promise<string> {
-	try {
-		return await ejs.render(JSON.stringify(template), templateData, { async: true });
-	} catch (error) {
-		console.error(`Failed to render template: ${error.message}`);
-		throw new Error("Template rendering failed");
-	}
-}
-
-function parseRenderedTemplate(renderedTemplate: string): EmailTemplate {
-	try {
-		return JSON.parse(renderedTemplate);
-	} catch (error) {
-		console.error(`Failed to parse rendered template: ${error.message}`);
-		throw new Error("Failed to parse rendered template");
 	}
 }
 

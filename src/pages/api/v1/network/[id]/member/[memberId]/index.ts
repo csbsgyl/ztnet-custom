@@ -10,7 +10,7 @@ import {
 	deleteHandlerContextSchema,
 	handlerContextSchema,
 	updateableFieldsMetaSchema,
-} from "./_schema";
+} from "~/server/api/schemas/v1/networkMember";
 
 // Rate limit using environment configuration
 const limiter = rateLimit({

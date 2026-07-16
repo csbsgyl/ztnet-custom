@@ -5,7 +5,7 @@ import { SecuredOrganizationApiRoute } from "~/utils/apiRouteAuth";
 import { handleApiErrors } from "~/utils/errors";
 import rateLimit, { RATE_LIMIT_CONFIG } from "~/utils/rateLimit";
 import * as ztController from "~/utils/ztApi";
-import { createNetworkContextSchema } from "./_schema";
+import { createNetworkContextSchema } from "~/server/api/schemas/v1/organizationNetwork";
 import { prisma } from "~/server/db";
 
 // Rate limit using environment configuration

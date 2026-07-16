@@ -15,25 +15,33 @@ const session = {
 	user: { id: "admin-1", role: "ADMIN" },
 } as Session;
 
-function createCaller() {
+function createCaller(
+	target: Record<string, unknown> = {
+		id: "user-1",
+		role: "USER",
+		suspensionReason: "NONE",
+		expiresAt: null,
+		userGroup: null,
+		subscription: null,
+	},
+) {
 	const userUpdate = jest.fn(async ({ data }) => ({ id: "user-1", ...data }));
 	const sessionDeleteMany = jest.fn(async () => ({ count: 2 }));
 	const tokenUpdateMany = jest.fn(async () => ({ count: 3 }));
+	const executeRaw = jest.fn(async () => 1);
 	const transaction = {
-		user: { update: userUpdate },
+		$executeRaw: executeRaw,
+		user: { findUnique: jest.fn(async () => target), update: userUpdate },
 		session: { deleteMany: sessionDeleteMany },
 		aPIToken: { updateMany: tokenUpdateMany },
 	};
-	const userFindUnique = jest
-		.fn()
-		.mockResolvedValueOnce({
-			id: "admin-1",
-			role: "ADMIN",
-			isActive: true,
-			suspensionReason: "NONE",
-			expiresAt: null,
-		})
-		.mockResolvedValueOnce({ id: "user-1", role: "USER" });
+	const userFindUnique = jest.fn().mockResolvedValue({
+		id: "admin-1",
+		role: "ADMIN",
+		isActive: true,
+		suspensionReason: "NONE",
+		expiresAt: null,
+	});
 	const caller = adminRouter.createCaller({
 		session,
 		prisma: {
@@ -43,7 +51,7 @@ function createCaller() {
 		wss: null,
 		res: null,
 	} as never);
-	return { caller, userUpdate, sessionDeleteMany, tokenUpdateMany };
+	return { caller, userUpdate, sessionDeleteMany, tokenUpdateMany, executeRaw };
 }
 
 test("administrator suspension immediately revokes every access path", async () => {
@@ -63,6 +71,7 @@ test("administrator suspension immediately revokes every access path", async () 
 		data: { isActive: false },
 	});
 	expect(disconnectUserSockets).toHaveBeenCalledWith("user-1");
+	expect(harness.executeRaw).toHaveBeenCalled();
 });
 
 test("administrator reactivation does not silently reactivate old API tokens", async () => {
@@ -77,6 +86,26 @@ test("administrator reactivation does not silently reactivate old API tokens", a
 	expect(harness.sessionDeleteMany).not.toHaveBeenCalled();
 	expect(harness.tokenUpdateMany).not.toHaveBeenCalled();
 	expect(disconnectUserSockets).not.toHaveBeenCalled();
+});
+
+test("administrator cannot bypass subscription expiration with the active toggle", async () => {
+	const harness = createCaller({
+		id: "user-1",
+		role: "USER",
+		suspensionReason: "SUBSCRIPTION_EXPIRED",
+		expiresAt: new Date("2026-07-01T00:00:00.000Z"),
+		userGroup: null,
+		subscription: {
+			status: "EXPIRED",
+			startsAt: new Date("2026-06-01T00:00:00.000Z"),
+			expiresAt: new Date("2026-07-01T00:00:00.000Z"),
+		},
+	});
+
+	await expect(
+		harness.caller.updateUser({ id: "user-1", params: { isActive: true } }),
+	).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+	expect(harness.userUpdate).not.toHaveBeenCalled();
 });
 
 test("administrator settings responses expose only Alipay key states", async () => {

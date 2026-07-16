@@ -41,19 +41,24 @@ Only **PostgreSQL** databases are supported.
 3. (Optional) give it a name, then click **Create backup**.
 4. The archive is created and downloaded to your browser. Keep that file somewhere safe, it is your backup.
 
+Docker deployments created by the one-click installer also keep server-side copies in
+`/opt/ztnet-custom/backups`. This directory is bind-mounted into the application container,
+so automatic image updates do not remove the backup list. Download at least one copy to a
+separate machine; a backup stored only on the same server is not disaster recovery.
+
 ## Restoring (from the app)
 
 Use this when the app is running normally.
 
 1. Go to **Admin, Backup & Restore**.
 2. Either click **Restore** on a backup in the list, or upload a `.tar.gz` file.
-3. Choose what to restore (**Database** / **ZeroTier**) and confirm.
+3. Choose what to restore (**Database** / **ZeroTier**) and confirm. Docker deployments support database-only restore in the running app.
 
-The previous ZeroTier folder is moved aside to `ZT_FOLDER.backup.<timestamp>` before restoring, so nothing is destroyed in place. After a database restore, refresh the page (you may need to log in again).
+For standalone deployments, the previous ZeroTier folder is moved aside to `ZT_FOLDER.backup.<timestamp>` before restoring, so nothing is destroyed in place. After a database restore, refresh the page (you may need to log in again).
 
 The only difference between deployments is how ZeroTier is restarted afterwards:
 
-- **Docker:** after the restore, restart the ZeroTier container yourself with `sudo docker restart zerotier` (a dialog reminds you).
+- **Docker:** ZeroTier restore is intentionally offline-only because the application container cannot safely stop the separate ZeroTier container. Use the manual procedure below.
 - **Standalone:** the `zerotier-one` service is restarted automatically.
 
 ## Disaster recovery (app won't start) {#disaster-recovery-app-wont-start}

@@ -956,6 +956,7 @@
 				"warning": "Восстановление перезапишет ваши текущие данные. Убедитесь, что сначала создали резервную копию!",
 				"restoreDatabase": "Восстановить базу данных",
 				"restoreZerotier": "Восстановить папку ZeroTier",
+				"dockerOfflineWarning": "Файлы ZeroTier в Docker необходимо восстанавливать в автономном режиме. Остановите ztnet и zerotier и следуйте документации по аварийному восстановлению.",
 				"selectFile": "Выберите файл резервной копии",
 				"selectedFile": "Выбранный файл: {fileName} ({size})",
 				"restoreButton": "Восстановить из файла",
@@ -1501,14 +1502,17 @@
 				"planDeleted": "Plan deleted or archived.",
 				"orderQueried": "The latest Alipay order status has been applied.",
 				"renewed": "Subscription renewed.",
-				"alipaySaved": "Alipay configuration saved."
+				"alipaySaved": "Alipay configuration saved.",
+				"assignmentSaved": "Plan and expiration saved.",
+				"assignmentRestorePartial": "The plan was saved, but some suspended network members could not be restored. Retry after checking the controller."
 			},
 			"validation": {
 				"plan": "Complete the plan fields with valid values.",
 				"renewal": "Select a user and plan and enter valid renewal values.",
 				"alipay": "Complete the required Alipay credentials before enabling payments.",
 				"alipayFee": "Enter a payment fee from 0 to 100 with no more than two decimal places.",
-				"alipayCallbacks": "Enter valid HTTP/HTTPS domains without paths. Both callback domains are required when payments are enabled."
+				"alipayCallbacks": "Enter valid HTTP/HTTPS domains without paths. Both callback domains are required when payments are enabled.",
+				"assignment": "Select a plan and a future expiration date."
 			},
 			"metrics": {
 				"activeSubscriptions": "Active subscriptions",

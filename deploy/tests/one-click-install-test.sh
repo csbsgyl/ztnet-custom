@@ -310,6 +310,11 @@ assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_HTTP_API_TO
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.watchtower.scope: \"ztnet-custom\"" "scopes the application and updater"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "/var/run/docker.sock:/var/run/docker.sock" "mounts the Docker socket"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - app-network" "connects the updater to the private application network"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - ./backups:/app/backups" "persists application backups on the host"
+assert_eq \
+	"1" \
+	"$(grep -Fc './backups:/app/backups' "${INSTALL_DIR}/docker-compose.yml")" \
+	"mounts the backup directory in exactly one service"
 assert_eq \
 	"1" \
 	"$(grep -Fc 'com.centurylinklabs.watchtower.enable: "true"' "${INSTALL_DIR}/docker-compose.yml")" \

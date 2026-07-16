@@ -39,6 +39,7 @@ services:
     restart: unless-stopped
     volumes:
       - zerotier:/var/lib/zerotier-one
+      - ./backups:/app/backups
     ports:
       - "${HTTP_PORT:-3000}:3000"
     environment:
@@ -55,6 +56,7 @@ services:
       ZTNET_IMAGE: ${ZTNET_IMAGE:-ghcr.io/csbsgyl/ztnet-custom:latest}
       UPDATE_API_URL: ${UPDATE_API_URL:-http://updater:8080}
       UPDATE_API_TOKEN: ${UPDATE_API_TOKEN:?UPDATE_API_TOKEN is required}
+      BACKUP_DIR: /app/backups
     networks:
       - app-network
     labels:

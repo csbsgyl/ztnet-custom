@@ -572,7 +572,7 @@ describe("subscription-expiry restoration", () => {
 		expect(harness.state.tokens[0]?.isActive).toBe(false);
 	});
 
-	test("partial restore retries only the remaining successful-suspension snapshot", async () => {
+	test("partial restore rolls back earlier members and retries the full set", async () => {
 		const failedKey = memberKey("network-1", "member-2");
 		const harness = setup({
 			users: [defaultUser({ isActive: false, suspensionReason: "SUBSCRIPTION_EXPIRED" })],
@@ -596,23 +596,31 @@ describe("subscription-expiry restoration", () => {
 		const first = await restoreSubscriptionExpiredUser(harness.dependencies, "user-1");
 		expect(first).toMatchObject({
 			state: "PARTIAL_FAILURE",
-			succeededMembers: 1,
+			succeededMembers: 0,
 			failedMembers: 1,
 		});
 		expect(harness.state.users[0]?.isActive).toBe(false);
+		expect(harness.state.members).toEqual([
+			expect.objectContaining({ id: "member-1", authorized: false }),
+			expect.objectContaining({ id: "member-2", authorized: false }),
+		]);
+		expect(harness.state.snapshots[0]).toMatchObject({
+			restoredAt: null,
+			lastError: "Restoration rolled back because another member failed.",
+		});
 
 		harness.failControllerKeys.clear();
 		const second = await restoreSubscriptionExpiredUser(harness.dependencies, "user-1");
 
 		expect(second).toMatchObject({
 			state: "RESTORED",
-			attemptedMembers: 1,
-			succeededMembers: 1,
+			attemptedMembers: 2,
+			succeededMembers: 2,
 		});
 		const calls = harness.mocks.controllerUpdate.mock.calls.map(
 			(call) => call[0] as ControllerUpdateInput,
 		);
-		expect(calls.filter((call) => call.memberId === "member-1")).toHaveLength(1);
+		expect(calls.filter((call) => call.memberId === "member-1")).toHaveLength(3);
 		expect(calls.filter((call) => call.memberId === "member-2")).toHaveLength(2);
 		expect(harness.state.users[0]?.isActive).toBe(true);
 	});
@@ -626,6 +634,67 @@ describe("subscription-expiry restoration", () => {
 
 		expect(result.state).toBe("SKIPPED_NO_ACTIVE_SUBSCRIPTION");
 		expect(harness.mocks.userUpdate).not.toHaveBeenCalled();
+	});
+
+	test("rolls back member restoration if an administrator suspends the user concurrently", async () => {
+		const harness = setup({
+			users: [defaultUser({ isActive: false, suspensionReason: "SUBSCRIPTION_EXPIRED" })],
+			subscriptions: [
+				expiredSubscription({
+					status: "ACTIVE",
+					expiresAt: new Date("2026-08-14T08:00:00.000Z"),
+				}),
+			],
+			members: [
+				member("member-1", { authorized: false }),
+				member("member-2", { authorized: false }),
+			],
+			snapshots: [
+				snapshot("one", { memberId: "member-1" }),
+				snapshot("two", { memberId: "member-2" }),
+			],
+		});
+		let administratorSuspended = false;
+		harness.mocks.controllerUpdate.mockImplementation(
+			async (update: ControllerUpdateInput) => {
+				const currentMember = harness.state.members.find(
+					(candidate) =>
+						candidate.nwid === update.networkId && candidate.id === update.memberId,
+				);
+				if (currentMember) currentMember.authorized = update.authorized;
+				if (update.authorized && !administratorSuspended) {
+					administratorSuspended = true;
+					Object.assign(harness.state.users[0], {
+						isActive: false,
+						suspensionReason: "ADMIN",
+					});
+				}
+			},
+		);
+
+		const result = await restoreSubscriptionExpiredUser(harness.dependencies, "user-1");
+
+		expect(result).toMatchObject({
+			state: "SKIPPED_MANUAL",
+			succeededMembers: 0,
+			failedMembers: 0,
+		});
+		expect(harness.state.users[0]).toMatchObject({
+			isActive: false,
+			suspensionReason: "ADMIN",
+		});
+		expect(harness.state.members).toEqual([
+			expect.objectContaining({ id: "member-1", authorized: false }),
+			expect.objectContaining({ id: "member-2", authorized: false }),
+		]);
+		expect(harness.state.snapshots[0]).toMatchObject({
+			restoredAt: null,
+			lastError: "Restoration cancelled: SKIPPED_MANUAL",
+		});
+		const authorizationCalls = harness.mocks.controllerUpdate.mock.calls.map(
+			(call) => (call[0] as ControllerUpdateInput).authorized,
+		);
+		expect(authorizationCalls).toEqual([true, false]);
 	});
 });
 

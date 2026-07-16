@@ -26,6 +26,16 @@ export async function updatePersonalNetworkMember(
 	});
 }
 
+export async function restoreSubscriptionAccess(prisma: PrismaClient, userId: string) {
+	return restoreSubscriptionExpiredUser(
+		{
+			prisma: prisma as unknown as SuspensionPrisma,
+			controllerUpdate: (input) => updatePersonalNetworkMember(prisma, input),
+		},
+		userId,
+	);
+}
+
 export async function fulfilPaidOrder(prisma: PrismaClient, merchantOrderNo: string) {
 	const order = await prisma.billingOrder.findUniqueOrThrow({
 		where: { merchantOrderNo },
@@ -53,13 +63,7 @@ export async function fulfilPaidOrder(prisma: PrismaClient, merchantOrderNo: str
 		throw error;
 	}
 
-	const restoration = await restoreSubscriptionExpiredUser(
-		{
-			prisma: prisma as unknown as SuspensionPrisma,
-			controllerUpdate: (input) => updatePersonalNetworkMember(prisma, input),
-		},
-		order.userId,
-	);
+	const restoration = await restoreSubscriptionAccess(prisma, order.userId);
 	if (
 		restoration.state === "PARTIAL_FAILURE" ||
 		restoration.state === "SKIPPED_NOT_FOUND" ||

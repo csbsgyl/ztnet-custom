@@ -241,7 +241,7 @@ export const billingRouter = createTRPCRouter({
 		.mutation(async ({ ctx, input }) => {
 			try {
 				const order = await ctx.prisma.$transaction(async (transaction) => {
-					const lockKey = `billing-order:${ctx.session.user.id}`;
+					const lockKey = `billing-user:${ctx.session.user.id}`;
 					await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 					const [plan, options, existing] = await Promise.all([
 						transaction.billingPlan.findUnique({

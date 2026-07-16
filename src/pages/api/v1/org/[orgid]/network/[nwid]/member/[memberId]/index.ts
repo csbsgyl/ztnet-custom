@@ -8,7 +8,10 @@ import { handleApiErrors } from "~/utils/errors";
 import rateLimit, { RATE_LIMIT_CONFIG } from "~/utils/rateLimit";
 import { checkUserOrganizationRole } from "~/utils/role";
 import * as ztController from "~/utils/ztApi";
-import { HandlerContextSchema, PostBodySchema } from "./_schema";
+import {
+	HandlerContextSchema,
+	PostBodySchema,
+} from "~/server/api/schemas/v1/organizationNetworkMember";
 
 // Rate limit using environment configuration
 const limiter = rateLimit({

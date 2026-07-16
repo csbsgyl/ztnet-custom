@@ -5,7 +5,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { auth } from "~/lib/auth";
 import { prisma } from "~/server/db";
 import { canAccessProtectedResources } from "~/utils/accountAccess";
-import { ZT_FOLDER } from "~/utils/ztApi";
+import { ZT_FOLDER } from "~/utils/ztPaths";
 
 const accountSelect = {
 	id: true,
@@ -51,7 +51,9 @@ export default async function planetDownload(req: NextApiRequest, res: NextApiRe
 
 	try {
 		// This is the file mounted into and used by the ZeroTier container.
-		const planet = await fs.readFile(path.join(ZT_FOLDER, "planet"));
+		const planet = await fs.readFile(
+			path.join(/* turbopackIgnore: true */ ZT_FOLDER, "planet"),
+		);
 		if (planet.length === 0) {
 			return res.status(404).send("Planet file is not available");
 		}

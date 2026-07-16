@@ -956,6 +956,7 @@
 				"warning": "Gjenoppretting vil overskrive dine nåværende data. Sørg for å opprette en sikkerhetskopi først!",
 				"restoreDatabase": "Gjenopprett Database",
 				"restoreZerotier": "Gjenopprett ZeroTier-mappe",
+				"dockerOfflineWarning": "ZeroTier-filer må gjenopprettes frakoblet i Docker. Stopp ztnet og zerotier, og følg dokumentasjonen for katastrofegjenoppretting.",
 				"selectFile": "Velg Sikkerhetskopi-fil",
 				"selectedFile": "Valgt fil: {fileName} ({size})",
 				"restoreButton": "Gjenopprett fra Fil",
@@ -1501,14 +1502,17 @@
 				"planDeleted": "Plan deleted or archived.",
 				"orderQueried": "The latest Alipay order status has been applied.",
 				"renewed": "Subscription renewed.",
-				"alipaySaved": "Alipay configuration saved."
+				"alipaySaved": "Alipay configuration saved.",
+				"assignmentSaved": "Plan and expiration saved.",
+				"assignmentRestorePartial": "The plan was saved, but some suspended network members could not be restored. Retry after checking the controller."
 			},
 			"validation": {
 				"plan": "Complete the plan fields with valid values.",
 				"renewal": "Select a user and plan and enter valid renewal values.",
 				"alipay": "Complete the required Alipay credentials before enabling payments.",
 				"alipayFee": "Enter a payment fee from 0 to 100 with no more than two decimal places.",
-				"alipayCallbacks": "Enter valid HTTP/HTTPS domains without paths. Both callback domains are required when payments are enabled."
+				"alipayCallbacks": "Enter valid HTTP/HTTPS domains without paths. Both callback domains are required when payments are enabled.",
+				"assignment": "Select a plan and a future expiration date."
 			},
 			"metrics": {
 				"activeSubscriptions": "Active subscriptions",

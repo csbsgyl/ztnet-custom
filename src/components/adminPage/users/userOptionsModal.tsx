@@ -3,7 +3,7 @@ import { api } from "~/utils/api";
 import cn from "classnames";
 import toast from "react-hot-toast";
 import UserRole from "./userRole";
-import UserGroup from "./userGroup";
+import UserPlan from "./userPlan";
 import { useModalStore } from "~/utils/store";
 import { useTranslations } from "next-intl";
 import UserIsActive from "./userIsActive";
@@ -76,12 +76,11 @@ const UserOptionsModal = ({ userId }: Iprops) => {
 
 			<div className={cn({ "opacity-30": userDeleteLoading })}>
 				<div className="grid grid-cols-4 items-start gap-4">
-					<div className="col-span-4">
-						<header className="text-sm">
-							{t("users.users.userOptionModal.userGroupLabel")}
-						</header>
-						<UserGroup user={user} />
-					</div>
+					{user.role !== "ADMIN" ? (
+						<div className="col-span-4">
+							<UserPlan user={user} />
+						</div>
+					) : null}
 					<div className="col-span-4">
 						<header className="text-sm">
 							{t("users.users.userOptionModal.userRoleLabel")}

@@ -540,6 +540,7 @@ services:
       - .env
     volumes:
       - zerotier:/var/lib/zerotier-one
+      - ./backups:/app/backups
     ports:
       - "${HTTP_PORT}:3000"
     environment:
@@ -551,6 +552,7 @@ services:
       NEXTAUTH_URL: \${NEXTAUTH_URL}
       NEXTAUTH_SECRET: \${NEXTAUTH_SECRET}
       NEXTAUTH_URL_INTERNAL: \${NEXTAUTH_URL_INTERNAL}
+      BACKUP_DIR: /app/backups
     networks:
       - app-network
 EOF
@@ -631,6 +633,8 @@ main() {
 	fi
 
 	mkdir -p "$INSTALL_DIR"
+	mkdir -p "${INSTALL_DIR}/backups"
+	chmod 700 "${INSTALL_DIR}/backups"
 	write_env_file
 	write_compose_file
 

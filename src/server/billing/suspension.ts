@@ -245,6 +245,38 @@ async function updateSnapshot(
 	});
 }
 
+async function rollbackRestoredMembers(
+	dependencies: SuspensionDependencies,
+	userId: string,
+	snapshots: SuspensionSnapshotRecord[],
+	reason: string,
+): Promise<number> {
+	let rollbackFailures = 0;
+	for (const snapshot of snapshots.toReversed()) {
+		let controllerRolledBack = false;
+		try {
+			await dependencies.controllerUpdate({
+				userId,
+				networkId: snapshot.networkId,
+				memberId: snapshot.memberId,
+				authorized: false,
+			});
+			controllerRolledBack = true;
+			await updateSnapshot(dependencies.prisma, snapshot, {
+				restoredAt: null,
+				lastError: reason,
+			});
+		} catch (error) {
+			rollbackFailures += 1;
+			await updateSnapshot(dependencies.prisma, snapshot, {
+				...(controllerRolledBack ? { restoredAt: null } : {}),
+				lastError: `Restoration rollback failed: ${errorMessage(error)}`,
+			});
+		}
+	}
+	return rollbackFailures;
+}
+
 async function prepareSnapshots(
 	database: SuspensionDatabase,
 	subscription: SuspensionSubscriptionRecord,
@@ -564,18 +596,32 @@ export async function restoreSubscriptionExpiredUser(
 	let succeededMembers = 0;
 	let failedMembers = 0;
 	let skippedMembers = 0;
+	const restoredThisAttempt: SuspensionSnapshotRecord[] = [];
 	for (const snapshot of snapshots) {
 		if (!currentMemberKeys.has(memberKey(snapshot.networkId, snapshot.memberId))) {
 			skippedMembers += 1;
 			continue;
 		}
 		try {
+			const currentUser = await dependencies.prisma.user.findUnique({
+				where: { id: userId },
+				select: userSelect,
+			});
+			if (
+				!currentUser ||
+				currentUser.role === "ADMIN" ||
+				currentUser.isActive ||
+				currentUser.suspensionReason !== SUBSCRIPTION_EXPIRED_REASON
+			) {
+				break;
+			}
 			await dependencies.controllerUpdate({
 				userId,
 				networkId: snapshot.networkId,
 				memberId: snapshot.memberId,
 				authorized: true,
 			});
+			restoredThisAttempt.push(snapshot);
 			await updateSnapshot(dependencies.prisma, snapshot, {
 				restoredAt: now,
 				lastError: null,
@@ -590,23 +636,84 @@ export async function restoreSubscriptionExpiredUser(
 	}
 
 	if (failedMembers > 0) {
+		const rollbackFailures = await rollbackRestoredMembers(
+			dependencies,
+			userId,
+			restoredThisAttempt,
+			"Restoration rolled back because another member failed.",
+		);
 		return {
 			state: "PARTIAL_FAILURE",
 			userId,
 			snapshotIds: snapshots.map((snapshot) => snapshot.id),
 			attemptedMembers: snapshots.length,
-			succeededMembers,
-			failedMembers,
+			succeededMembers: rollbackFailures,
+			failedMembers: failedMembers + rollbackFailures,
 			skippedMembers,
 		};
 	}
 
-	await dependencies.prisma.$transaction(async (transaction) => {
+	const activationState = await dependencies.prisma.$transaction(async (transaction) => {
+		const userLockKey = `billing-user:${userId}`;
+		await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userLockKey}))`;
+		const currentUser = await transaction.user.findUnique({
+			where: { id: userId },
+			select: userSelect,
+		});
+		if (!currentUser) return "SKIPPED_NOT_FOUND" as const;
+		if (currentUser.role === "ADMIN") return "SKIPPED_ADMIN" as const;
+		if (isManualSuspension(currentUser.suspensionReason)) {
+			return "SKIPPED_MANUAL" as const;
+		}
+		if (currentUser.isActive) return "ALREADY_ACTIVE" as const;
+		if (currentUser.suspensionReason !== SUBSCRIPTION_EXPIRED_REASON) {
+			return "SKIPPED_INACTIVE" as const;
+		}
+		const currentSubscription = await transaction.subscription.findFirst({
+			where: {
+				userId,
+				status: "ACTIVE",
+				startsAt: { lte: now },
+				expiresAt: { gt: now },
+			},
+			orderBy: { expiresAt: "desc" },
+			select: subscriptionSelect,
+		});
+		if (!currentSubscription) return "SKIPPED_NO_ACTIVE_SUBSCRIPTION" as const;
 		await transaction.user.update({
 			where: { id: userId },
 			data: { isActive: true, suspensionReason: "NONE" },
 		});
+		return "RESTORED" as const;
 	});
+	if (activationState !== "RESTORED") {
+		if (activationState !== "ALREADY_ACTIVE") {
+			const rollbackFailures = await rollbackRestoredMembers(
+				dependencies,
+				userId,
+				restoredThisAttempt,
+				`Restoration cancelled: ${activationState}`,
+			);
+			if (rollbackFailures > 0) {
+				return {
+					state: "PARTIAL_FAILURE",
+					userId,
+					snapshotIds: snapshots.map((snapshot) => snapshot.id),
+					attemptedMembers: snapshots.length,
+					succeededMembers: 0,
+					failedMembers: rollbackFailures,
+					skippedMembers,
+				};
+			}
+		}
+		return {
+			...emptyRestoreResult(activationState, userId),
+			snapshotIds: snapshots.map((snapshot) => snapshot.id),
+			attemptedMembers: snapshots.length,
+			succeededMembers: activationState === "ALREADY_ACTIVE" ? succeededMembers : 0,
+			skippedMembers,
+		};
+	}
 
 	return {
 		state: "RESTORED",

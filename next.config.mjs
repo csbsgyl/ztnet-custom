@@ -7,6 +7,7 @@
 /** @type {import("next").NextConfig} */
 const config = {
 	reactStrictMode: true,
+	poweredByHeader: false,
 	allowedDevOrigins: ["10.0.0.217"],
 	// https://nextjs.org/docs/advanced-features/output-file-tracing
 	output: "standalone",
@@ -27,6 +28,22 @@ const config = {
 				source: "/",
 				destination: "/auth/login",
 				permanent: true,
+			},
+		];
+	},
+	async headers() {
+		return [
+			{
+				source: "/(.*)",
+				headers: [
+					{ key: "X-Content-Type-Options", value: "nosniff" },
+					{ key: "X-Frame-Options", value: "SAMEORIGIN" },
+					{ key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+					{
+						key: "Permissions-Policy",
+						value: "camera=(), microphone=(), geolocation=()",
+					},
+				],
 			},
 		];
 	},

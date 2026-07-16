@@ -1,5 +1,6 @@
 import fs from "fs";
 import { IPv4gen } from "./IPv4gen";
+import { ZT_FILE } from "./ztPaths";
 import axios, { type AxiosError, type AxiosResponse } from "axios";
 import { APIError } from "~/server/helpers/errorHandler";
 import {
@@ -24,19 +25,9 @@ import { type MemberEntity } from "~/types/local/member";
 import { type NetworkEntity } from "~/types/local/network";
 import { type NetworkAndMemberResponse } from "~/types/network";
 import { UserContext } from "~/types/ctx";
-import os from "os";
 import { prisma } from "~/server/db";
 
-export let ZT_FOLDER: string;
-
-if (os.platform() === "freebsd") {
-	ZT_FOLDER = "/var/db/zerotier-one";
-} else {
-	ZT_FOLDER = "/var/lib/zerotier-one";
-}
-
-export const ZT_FILE: string =
-	process.env.ZT_SECRET_FILE || `${ZT_FOLDER}/authtoken.secret`;
+export { ZT_FILE, ZT_FOLDER } from "./ztPaths";
 
 const LOCAL_ZT_ADDR = process.env.ZT_ADDR;
 const CENTRAL_ZT_ADDR = "https://api.zerotier.com/api/v1";
@@ -47,7 +38,7 @@ const ZT_SECRET =
 		? "dummy_text_to_skip_gh"
 		: (() => {
 				try {
-					return fs.readFileSync(ZT_FILE, "utf8");
+					return fs.readFileSync(/* turbopackIgnore: true */ ZT_FILE, "utf8");
 				} catch (error) {
 					console.error("An error occurred while reading the ZT_SECRET");
 					console.error(error);

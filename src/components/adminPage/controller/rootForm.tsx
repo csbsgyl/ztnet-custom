@@ -1,22 +1,20 @@
-import type { RootNodes } from "@prisma/client";
 import { useTranslations } from "next-intl";
 import type React from "react";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import type { JsonValue } from "type-fest";
 import Input from "~/components/elements/input";
 import type { ErrorData } from "~/types/errorHandling";
 import { api } from "~/utils/api";
 import { useModalStore } from "~/utils/store";
 
 interface RootNode {
-	endpoints: JsonValue;
+	endpoints: string[];
 	comments: string;
 	identity: string;
 }
 
 interface RootNodesArrayProps {
-	rootNodes: Partial<RootNode>[];
+	rootNodes: RootNode[];
 	handleEndpointArrayChange: (
 		e: React.ChangeEvent<HTMLInputElement>,
 		index: number,
@@ -95,7 +93,12 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 	const { data: getPlanet, refetch: refetchPlanet } = api.admin.getPlanet.useQuery();
 
 	const { data: getIdentity } = api.admin.getIdentity.useQuery();
-	const [world, setWorld] = useState({
+	const [world, setWorld] = useState<{
+		plRecommend: boolean;
+		plBirth: number;
+		plID: number;
+		rootNodes: RootNode[];
+	}>({
 		plRecommend: true,
 		plBirth: Date.now(),
 		plID: Math.floor(Math.random() * 2 ** 32),
@@ -105,15 +108,23 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 				comments: "",
 				identity: "",
 			},
-		] as Partial<RootNodes>[],
+		],
 	});
 
 	useEffect(() => {
 		setWorld((prev) => {
 			// Use existing data from getOptions.rootNodes if available
-			const rootNodesData =
+			const rootNodesData: RootNode[] =
 				getPlanet?.rootNodes.length > 0
-					? getPlanet?.rootNodes
+					? getPlanet.rootNodes.map((node) => ({
+							identity: node.identity,
+							comments: node.comments ?? "",
+							endpoints: Array.isArray(node.endpoints)
+								? node.endpoints.filter(
+										(endpoint): endpoint is string => typeof endpoint === "string",
+									)
+								: [],
+						}))
 					: [
 							{
 								endpoints: [`${getIdentity?.ip}/9993`],
@@ -191,16 +202,18 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 		});
 	};
 
-	const handleEndpointArrayChange = (e, index) => {
+	const handleEndpointArrayChange = (
+		e: React.ChangeEvent<HTMLInputElement>,
+		index: number,
+	) => {
 		const { name, value } = e.target;
 		const root = [...world.rootNodes];
 
 		if (name === "endpoints") {
 			// Split the string by commas to create an array
-			root[index][name] = value.split(",").map((endpoint) => endpoint.trim());
+			root[index].endpoints = value.split(",").map((endpoint) => endpoint.trim());
 		} else {
-			// For other fields, assign the value directly
-			root[index][name] = value;
+			root[index][name as "identity" | "comments"] = value;
 		}
 		setWorld((prev) => ({
 			...prev,
@@ -208,14 +221,14 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 		}));
 	};
 
-	const handleAddClick = (e) => {
+	const handleAddClick = (e: React.MouseEvent<HTMLButtonElement>) => {
 		e.preventDefault();
 		setWorld((prev) => ({
 			...prev,
-			rootNodes: [...prev.rootNodes, { endpoints: "", identity: "", comments: "" }],
+			rootNodes: [...prev.rootNodes, { endpoints: [], identity: "", comments: "" }],
 		}));
 	};
-	const handleRemoveClick = (e, index) => {
+	const handleRemoveClick = (e: React.MouseEvent<HTMLButtonElement>, index: number) => {
 		e.preventDefault();
 
 		const roots = [...world.rootNodes];

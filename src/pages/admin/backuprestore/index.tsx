@@ -1,13 +1,14 @@
 import { useTranslations } from "next-intl";
 import { LayoutAdminAuthenticated } from "~/components/layouts/layout";
 import { api } from "~/utils/api";
-import { type ReactElement, useState, useRef } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import MenuSectionDividerWrapper from "~/components/shared/menuSectionDividerWrapper";
 import {
 	useTrpcApiErrorHandler,
 	useTrpcApiSuccessHandler,
 } from "~/hooks/useTrpcApiHandler";
 import { useModalStore } from "~/utils/store";
+import toast from "react-hot-toast";
 
 const BackupRestore = () => {
 	const t = useTranslations("admin.backupRestore");
@@ -26,6 +27,7 @@ const BackupRestore = () => {
 	});
 
 	const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+	const [uploadingBackup, setUploadingBackup] = useState(false);
 
 	const handleApiError = useTrpcApiErrorHandler();
 	const handleApiSuccess = useTrpcApiSuccessHandler();
@@ -36,6 +38,13 @@ const BackupRestore = () => {
 		refetch: refetchBackups,
 		isLoading: backupsLoading,
 	} = api.admin.listBackups.useQuery();
+	const { data: runtimeCapabilities } = api.admin.getRuntimeCapabilities.useQuery();
+
+	useEffect(() => {
+		if (runtimeCapabilities && !runtimeCapabilities.canRestoreZerotierOnline) {
+			setRestoreOptions((previous) => ({ ...previous, restoreZerotier: false }));
+		}
+	}, [runtimeCapabilities]);
 
 	// Mutations
 	const { mutate: createBackup, isLoading: creatingBackup } =
@@ -160,45 +169,44 @@ const BackupRestore = () => {
 			onError: handleApiError,
 		});
 
-	const { mutate: downloadBackup } = api.admin.downloadBackup.useMutation({
-		onSuccess: (data) => {
-			// Convert base64 to blob and download
-			const byteCharacters = atob(data.data);
-			const byteNumbers = new Array(byteCharacters.length);
-			for (let i = 0; i < byteCharacters.length; i++) {
-				byteNumbers[i] = byteCharacters.charCodeAt(i);
-			}
-			const byteArray = new Uint8Array(byteNumbers);
-			// Updated MIME type for tar.gz files
-			const blob = new Blob([byteArray], { type: "application/gzip" });
-
-			const url = window.URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = data.fileName;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
-			window.URL.revokeObjectURL(url);
-		},
-		onError: handleApiError,
-	});
-
-	const { mutate: uploadBackup, isLoading: uploadingBackup } =
-		api.admin.uploadBackup.useMutation({
-			onSuccess: handleApiSuccess({
-				actions: [refetchBackups],
-				toastMessage: t("restoreFromFile.uploadSuccessToast"),
-			}),
-			onError: handleApiError,
-		});
-
 	const handleCreateBackup = () => {
 		createBackup(createBackupOptions);
 	};
 
 	const downloadBackupFile = (fileName: string) => {
-		downloadBackup({ fileName });
+		const anchor = document.createElement("a");
+		anchor.href = `/api/admin/backups/download?fileName=${encodeURIComponent(fileName)}`;
+		anchor.download = fileName;
+		anchor.style.display = "none";
+		document.body.appendChild(anchor);
+		anchor.click();
+		anchor.remove();
+	};
+
+	const uploadBackupFile = async (file: File) => {
+		setUploadingBackup(true);
+		try {
+			const form = new FormData();
+			form.append("file", file, file.name);
+			const response = await fetch("/api/admin/backups/upload", {
+				method: "POST",
+				body: form,
+			});
+			if (!response.ok) {
+				const error = (await response.json().catch(() => null)) as {
+					message?: string;
+				} | null;
+				throw new Error(error?.message || `Upload failed (${response.status})`);
+			}
+			await refetchBackups();
+			toast.success(t("restoreFromFile.uploadSuccessToast"));
+			return true;
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Backup upload failed");
+			return false;
+		} finally {
+			setUploadingBackup(false);
+		}
 	};
 
 	const handleDeleteBackup = (fileName: string) => {
@@ -216,8 +224,7 @@ const BackupRestore = () => {
 
 	// Helper function to check if file is a valid tar file
 	const isValidTarFile = (fileName: string) => {
-		const validExtensions = [".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz"];
-		return validExtensions.some((ext) => fileName.toLowerCase().endsWith(ext));
+		return fileName.toLowerCase().endsWith(".tar.gz");
 	};
 
 	const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -255,6 +262,11 @@ const BackupRestore = () => {
 						})}
 					</div>
 				)}
+				{runtimeCapabilities && !runtimeCapabilities.canRestoreZerotierOnline ? (
+					<div className="mt-3 text-sm text-warning">
+						{t("restoreFromFile.dockerOfflineWarning")}
+					</div>
+				) : null}
 			</>
 		);
 		callModal({
@@ -265,30 +277,14 @@ const BackupRestore = () => {
 				</p>
 			),
 			description,
-			yesAction: () => {
+			yesAction: async () => {
 				try {
-					// Convert file to base64
-					const reader = new FileReader();
-					reader.onload = () => {
-						const base64Data = reader.result as string;
-						// Remove data:application/octet-stream;base64, or similar prefix
-						const base64String = base64Data.split(",")[1];
-
-						// Upload the file first
-						uploadBackup({
+					if (await uploadBackupFile(uploadedFile)) {
+						restoreBackup({
 							fileName: uploadedFile.name,
-							fileData: base64String,
+							...restoreOptions,
 						});
-
-						// Then restore from the uploaded file
-						setTimeout(() => {
-							restoreBackup({
-								fileName: uploadedFile.name,
-								...restoreOptions,
-							});
-						}, 1000); // Small delay to ensure upload completes
-					};
-					reader.readAsDataURL(uploadedFile);
+					}
 				} catch (_error) {
 					callModal({
 						title: t("restoreFromFile.uploadErrorModal.title"),
@@ -321,6 +317,11 @@ const BackupRestore = () => {
 						})}
 					</div>
 				)}
+				{runtimeCapabilities && !runtimeCapabilities.canRestoreZerotierOnline ? (
+					<div className="mt-3 text-sm text-warning">
+						{t("restoreFromFile.dockerOfflineWarning")}
+					</div>
+				) : null}
 			</>
 		);
 
@@ -537,6 +538,7 @@ const BackupRestore = () => {
 									type="checkbox"
 									className="checkbox checkbox-sm checkbox-primary"
 									checked={restoreOptions.restoreZerotier}
+									disabled={runtimeCapabilities?.canRestoreZerotierOnline === false}
 									onChange={(e) =>
 										setRestoreOptions((prev) => ({
 											...prev,

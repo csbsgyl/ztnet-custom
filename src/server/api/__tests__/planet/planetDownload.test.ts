@@ -13,7 +13,7 @@ jest.mock("~/server/db", () => ({
 		globalOptions: { findUnique: jest.fn() },
 	},
 }));
-jest.mock("~/utils/ztApi", () => ({
+jest.mock("~/utils/ztPaths", () => ({
 	ZT_FOLDER: "/var/lib/zerotier-one",
 }));
 
