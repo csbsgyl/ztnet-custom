@@ -12,6 +12,9 @@ jest.mock("~/utils/api", () => ({
 		},
 	},
 }));
+jest.mock("~/server/getServerSideProps", () => ({
+	getServerSideProps: jest.fn(),
+}));
 jest.mock("react-hot-toast", () => ({
 	__esModule: true,
 	default: { success: jest.fn(), error: jest.fn() },
