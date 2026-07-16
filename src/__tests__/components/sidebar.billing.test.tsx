@@ -64,6 +64,10 @@ describe("Sidebar billing navigation", () => {
 			"href",
 			"/billing",
 		);
+		expect(screen.getByRole("link", { name: "Client Downloads" })).toHaveAttribute(
+			"href",
+			"/downloads",
+		);
 	});
 
 	it("links administrators to billing administration only", () => {

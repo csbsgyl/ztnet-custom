@@ -124,6 +124,7 @@
 		"navigation": "首頁",
 		"dashboard": "儀表板",
 		"networks": "本地控制器",
+		"downloads": "客戶端下載",
 		"ztCentral": "ZT 中心",
 		"admin": "管理員",
 		"settings": "設定",
@@ -138,6 +139,22 @@
 		"user-settings": "使用者設定",
 		"logout": "登出",
 		"billing": "Billing"
+	},
+	"downloads": {
+		"title": "客戶端下載",
+		"subtitle": "下載目前控制器提供的連線設定檔。",
+		"planetTitle": "ZeroTier Planet",
+		"planetDescription": "目前生效的根伺服器設定",
+		"available": "可下載",
+		"unavailable": "暫不可用",
+		"fileName": "檔案名稱",
+		"fileType": "檔案類型",
+		"binaryFile": "原始二進位檔案",
+		"unavailableDescription": "管理員尚未啟用自訂 Planet。",
+		"downloadButton": "下載 planet",
+		"downloading": "正在下載",
+		"downloadSuccess": "planet 檔案已開始下載",
+		"downloadError": "Planet 下載失敗，請稍後再試。"
 	},
 	"authPages": {
 		"welcomeMessage": {

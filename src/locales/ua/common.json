@@ -124,6 +124,7 @@
 		"navigation": "Головна",
 		"dashboard": "Панель керування",
 		"networks": "Лок. контролер",
+		"downloads": "Завантаження клієнта",
 		"ztCentral": "ZT Central",
 		"admin": "Керування",
 		"settings": "Налаштування",
@@ -138,6 +139,22 @@
 		"user-settings": "Налаштування користувача",
 		"logout": "Вийти",
 		"billing": "Billing"
+	},
+	"downloads": {
+		"title": "Завантаження клієнта",
+		"subtitle": "Завантажте файли підключення, опубліковані цим контролером.",
+		"planetTitle": "ZeroTier Planet",
+		"planetDescription": "Активна конфігурація кореневого сервера",
+		"available": "Доступний",
+		"unavailable": "Недоступний",
+		"fileName": "Ім’я файлу",
+		"fileType": "Тип файлу",
+		"binaryFile": "Бінарний файл",
+		"unavailableDescription": "Адміністратор не ввімкнув користувацький Planet.",
+		"downloadButton": "Завантажити planet",
+		"downloading": "Завантаження",
+		"downloadSuccess": "Завантаження Planet розпочато",
+		"downloadError": "Не вдалося завантажити Planet. Спробуйте пізніше."
 	},
 	"authPages": {
 		"welcomeMessage": {

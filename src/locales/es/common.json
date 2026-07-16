@@ -124,6 +124,7 @@
 		"navigation": "Inicio",
 		"dashboard": "Tablero",
 		"networks": "Controlador Local",
+		"downloads": "Descargas del cliente",
 		"ztCentral": "ZT Central",
 		"admin": "Admin",
 		"settings": "Configuraciones",
@@ -138,6 +139,22 @@
 		"user-settings": "Ajustes de usuario",
 		"logout": "Cerrar sesión",
 		"billing": "Billing"
+	},
+	"downloads": {
+		"title": "Descargas del cliente",
+		"subtitle": "Descarga los archivos de conexión publicados por este controlador.",
+		"planetTitle": "ZeroTier Planet",
+		"planetDescription": "Configuración activa del servidor raíz",
+		"available": "Disponible",
+		"unavailable": "No disponible",
+		"fileName": "Nombre del archivo",
+		"fileType": "Tipo de archivo",
+		"binaryFile": "Archivo binario",
+		"unavailableDescription": "El administrador no ha habilitado un Planet personalizado.",
+		"downloadButton": "Descargar planet",
+		"downloading": "Descargando",
+		"downloadSuccess": "La descarga de Planet ha comenzado",
+		"downloadError": "No se pudo descargar Planet. Inténtalo de nuevo más tarde."
 	},
 	"authPages": {
 		"welcomeMessage": {

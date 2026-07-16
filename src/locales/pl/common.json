@@ -124,6 +124,7 @@
 		"navigation": "Nawigacja",
 		"dashboard": "Pulpit",
 		"networks": "Lokalny kontroler",
+		"downloads": "Pliki klienta",
 		"ztCentral": "ZT Central",
 		"admin": "Administracja",
 		"settings": "Ustawienia",
@@ -138,6 +139,22 @@
 		"user-settings": "Ustawienia konta",
 		"logout": "Wyloguj",
 		"billing": "Billing"
+	},
+	"downloads": {
+		"title": "Pliki klienta",
+		"subtitle": "Pobierz pliki połączenia udostępnione przez ten kontroler.",
+		"planetTitle": "ZeroTier Planet",
+		"planetDescription": "Aktywna konfiguracja serwera głównego",
+		"available": "Dostępny",
+		"unavailable": "Niedostępny",
+		"fileName": "Nazwa pliku",
+		"fileType": "Typ pliku",
+		"binaryFile": "Plik binarny",
+		"unavailableDescription": "Administrator nie włączył niestandardowego pliku Planet.",
+		"downloadButton": "Pobierz planet",
+		"downloading": "Pobieranie",
+		"downloadSuccess": "Rozpoczęto pobieranie Planet",
+		"downloadError": "Nie można pobrać Planet. Spróbuj ponownie później."
 	},
 	"authPages": {
 		"welcomeMessage": {

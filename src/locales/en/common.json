@@ -124,6 +124,7 @@
 		"navigation": "Home",
 		"dashboard": "Dashboard",
 		"networks": "Local Controller",
+		"downloads": "Client Downloads",
 		"billing": "Billing",
 		"ztCentral": "ZT Central",
 		"admin": "Admin",
@@ -138,6 +139,22 @@
 		"account": "Account",
 		"user-settings": "User Settings",
 		"logout": "Logout"
+	},
+	"downloads": {
+		"title": "Client Downloads",
+		"subtitle": "Download connection files published by this controller.",
+		"planetTitle": "ZeroTier Planet",
+		"planetDescription": "Active root-server configuration",
+		"available": "Available",
+		"unavailable": "Not available",
+		"fileName": "File name",
+		"fileType": "File type",
+		"binaryFile": "Binary file",
+		"unavailableDescription": "The administrator has not enabled a custom Planet.",
+		"downloadButton": "Download planet",
+		"downloading": "Downloading",
+		"downloadSuccess": "Planet download started",
+		"downloadError": "Unable to download Planet. Try again later."
 	},
 	"authPages": {
 		"welcomeMessage": {

@@ -124,6 +124,7 @@
 		"navigation": "Home",
 		"dashboard": "Dashboard",
 		"networks": "Lokaler Controller",
+		"downloads": "Client-Downloads",
 		"ztCentral": "ZT Central",
 		"admin": "Verwaltung",
 		"settings": "Einstellungen",
@@ -138,6 +139,22 @@
 		"user-settings": "Benutzereinstellungen",
 		"logout": "Abmelden",
 		"billing": "Billing"
+	},
+	"downloads": {
+		"title": "Client-Downloads",
+		"subtitle": "Laden Sie die von diesem Controller bereitgestellten Verbindungsdateien herunter.",
+		"planetTitle": "ZeroTier Planet",
+		"planetDescription": "Aktive Root-Server-Konfiguration",
+		"available": "Verfügbar",
+		"unavailable": "Nicht verfügbar",
+		"fileName": "Dateiname",
+		"fileType": "Dateityp",
+		"binaryFile": "Binärdatei",
+		"unavailableDescription": "Der Administrator hat kein benutzerdefiniertes Planet aktiviert.",
+		"downloadButton": "planet herunterladen",
+		"downloading": "Wird heruntergeladen",
+		"downloadSuccess": "Planet-Download wurde gestartet",
+		"downloadError": "Planet konnte nicht heruntergeladen werden. Versuchen Sie es später erneut."
 	},
 	"authPages": {
 		"welcomeMessage": {

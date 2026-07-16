@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useSidebarStore, useSocketStore } from "~/utils/store";
 import { api } from "~/utils/api";
 import {
+	ArrowDownTrayIcon,
 	ArrowPathIcon,
 	BanknotesIcon,
 	CreditCardIcon,
@@ -135,6 +136,21 @@ const Sidebar = (): JSX.Element => {
 								</svg>
 							</span>
 							<span className="ml-3">{t("networks")}</span>
+						</Link>
+					</li>
+					<li className="my-px">
+						<Link
+							href="/downloads"
+							className={`flex h-10 flex-row items-center rounded-lg px-3 ${
+								router.pathname.startsWith("/downloads")
+									? "bg-gray-100 text-gray-700"
+									: "hover:bg-slate-700"
+							}`}
+						>
+							<span className="flex items-center justify-center text-lg text-gray-400">
+								<ArrowDownTrayIcon className="h-6 w-6" />
+							</span>
+							<span className="ml-3">{t("downloads")}</span>
 						</Link>
 					</li>
 					{me && me.role !== "ADMIN" ? (
