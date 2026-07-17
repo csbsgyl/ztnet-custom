@@ -1160,9 +1160,31 @@
 				"modal": {
 					"noteTitle": "注意！",
 					"customPlanetGenerated": "已生成自定义星球。",
-					"restartContainerInstructions": "您需要重新启动zerotier容器以加载新配置：<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "您需要重新启动zerotier容器以加载新配置：<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "恢复原始星球",
 					"restoreOriginalPlanetContent": "您确定要恢复原始星球文件吗？如果您想保留当前的密钥，请确保备份您当前的星球文件"
+				},
+				"restartPrompt": {
+					"title": "应用 Planet 配置",
+					"operation": {
+						"generated": "Planet 已成功生成并保存。",
+						"imported": "Planet 配置已成功导入。",
+						"restored": "原始 Planet 已成功恢复。"
+					},
+					"description": "重启 ZeroTier 以加载新的 Planet 和端口配置。",
+					"checking": "正在检查是否支持一键重启...",
+					"connected": "当前部署支持一键重启。",
+					"connectionError": "重启服务无响应，请使用下方手动命令。",
+					"unavailable": "当前部署不支持一键重启，请使用下方手动命令。",
+					"statusCheckFailed": "无法检查重启服务，请手动重启 ZeroTier。",
+					"manualCommand": "手动重启命令",
+					"restartNow": "立即重启 ZeroTier",
+					"restarting": "正在重启 ZeroTier",
+					"restartInProgress": "ZeroTier 正在重启中，请稍候再试。",
+					"later": "稍后",
+					"restartSuccess": "ZeroTier 已成功重启",
+					"restartError": "无法重启 ZeroTier",
+					"restartErrorHint": "Planet 配置已保存，但 ZeroTier 重启失败。请使用上方手动命令。"
 				}
 			},
 			"yes": "是",

@@ -873,9 +873,31 @@
 				"modal": {
 					"noteTitle": "MERK!",
 					"customPlanetGenerated": "Egendefinert planet har blitt generert.",
-					"restartContainerInstructions": "Du må starte zerotier-containeren på nytt for å laste inn den nye konfigurasjonen:<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "Du må starte zerotier-containeren på nytt for å laste inn den nye konfigurasjonen:<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Gjenopprett Opprinnelig Planet",
 					"restoreOriginalPlanetContent": "Er du sikker på at du vil gjenopprette den opprinnelige planetfilen? Pass på å ta en sikkerhetskopi av din nåværende planetfil hvis du vil beholde de nåværende nøklene"
+				},
+				"restartPrompt": {
+					"title": "Bruk Planet-konfigurasjon",
+					"operation": {
+						"generated": "Planet ble generert og lagret.",
+						"imported": "Planet-konfigurasjonen ble importert.",
+						"restored": "Den opprinnelige Planet ble gjenopprettet."
+					},
+					"description": "Start ZeroTier på nytt for å laste inn den nye Planet- og portkonfigurasjonen.",
+					"checking": "Kontrollerer om omstart med ett klikk er tilgjengelig...",
+					"connected": "Omstart med ett klikk er tilgjengelig.",
+					"connectionError": "Omstartstjenesten svarer ikke. Bruk den manuelle kommandoen nedenfor.",
+					"unavailable": "Omstart med ett klikk er ikke tilgjengelig for denne installasjonen. Bruk den manuelle kommandoen nedenfor.",
+					"statusCheckFailed": "Kunne ikke kontrollere omstartstjenesten. Start ZeroTier på nytt manuelt.",
+					"manualCommand": "Manuell omstartskommando",
+					"restartNow": "Start ZeroTier på nytt nå",
+					"restarting": "Starter ZeroTier på nytt",
+					"restartInProgress": "En omstart av ZeroTier pågår allerede. Vent litt og prøv igjen.",
+					"later": "Senere",
+					"restartSuccess": "ZeroTier ble startet på nytt",
+					"restartError": "Kunne ikke starte ZeroTier på nytt",
+					"restartErrorHint": "Planet-konfigurasjonen er lagret, men ZeroTier kunne ikke startes på nytt. Bruk den manuelle kommandoen ovenfor."
 				}
 			},
 			"yes": "Ja",

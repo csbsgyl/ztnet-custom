@@ -873,9 +873,31 @@
 				"modal": {
 					"noteTitle": "NOTA!",
 					"customPlanetGenerated": "Niestandardowa planeta została wygenerowana.",
-					"restartContainerInstructions": "Musisz zrestartować kontener zerotier, aby załadować nową konfigurację:<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "Musisz zrestartować kontener zerotier, aby załadować nową konfigurację:<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Przywróć oryginalne ustawienia Planety",
 					"restoreOriginalPlanetContent": "Czy na pewno chcesz przywrócić oryginalny plik planety? Upewnij się, że masz kopię zapasową aktualnej planety w celu zachowania bieżących kluczy."
+				},
+				"restartPrompt": {
+					"title": "Zastosuj konfigurację Planet",
+					"operation": {
+						"generated": "Planet został pomyślnie wygenerowany i zapisany.",
+						"imported": "Konfiguracja Planet została pomyślnie zaimportowana.",
+						"restored": "Oryginalny Planet został pomyślnie przywrócony."
+					},
+					"description": "Uruchom ponownie ZeroTier, aby wczytać nową konfigurację Planet i portów.",
+					"checking": "Sprawdzanie dostępności ponownego uruchomienia jednym kliknięciem...",
+					"connected": "Ponowne uruchomienie jednym kliknięciem jest dostępne.",
+					"connectionError": "Usługa ponownego uruchamiania nie odpowiada. Użyj poniższego polecenia ręcznego.",
+					"unavailable": "Ponowne uruchomienie jednym kliknięciem nie jest dostępne w tym wdrożeniu. Użyj poniższego polecenia ręcznego.",
+					"statusCheckFailed": "Nie można sprawdzić usługi ponownego uruchamiania. Uruchom ZeroTier ponownie ręcznie.",
+					"manualCommand": "Polecenie ręcznego ponownego uruchomienia",
+					"restartNow": "Uruchom ZeroTier ponownie teraz",
+					"restarting": "Ponowne uruchamianie ZeroTier",
+					"restartInProgress": "Ponowne uruchamianie ZeroTier już trwa. Poczekaj chwilę i spróbuj ponownie.",
+					"later": "Później",
+					"restartSuccess": "ZeroTier został pomyślnie uruchomiony ponownie",
+					"restartError": "Nie można ponownie uruchomić ZeroTier",
+					"restartErrorHint": "Konfiguracja Planet jest zapisana, ale nie udało się ponownie uruchomić ZeroTier. Użyj powyższego polecenia ręcznego."
 				}
 			},
 			"yes": "Tak",

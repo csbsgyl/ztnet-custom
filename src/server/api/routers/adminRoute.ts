@@ -24,6 +24,7 @@ import path from "node:path";
 import { BackupMetadata } from "~/types/backupRestore";
 import { checkAndDeactivateExpiredUsers } from "~/cronTasks";
 import { getSystemUpdateStatus, triggerSystemUpdate } from "~/server/systemUpdate";
+import { getZeroTierRestartStatus, restartZeroTier } from "~/server/zeroTierRestart";
 import { upsertCredentialAccount } from "~/server/api/services/credentialAccountService";
 import { hasUppercaseEmail, normalizeEmail } from "~/utils/email";
 import { disconnectUserSockets } from "~/server/socketRegistry";
@@ -213,6 +214,19 @@ export const adminRouter = createTRPCRouter({
 		} catch (error) {
 			throwError(
 				error instanceof Error ? error.message : "The update request failed.",
+				"PRECONDITION_FAILED",
+			);
+		}
+	}),
+	getZeroTierRestartStatus: adminRoleProtectedRoute.query(() =>
+		getZeroTierRestartStatus(),
+	),
+	restartZeroTier: adminRoleProtectedRoute.mutation(async () => {
+		try {
+			return await restartZeroTier();
+		} catch (error) {
+			throwError(
+				error instanceof Error ? error.message : "The ZeroTier restart request failed.",
 				"PRECONDITION_FAILED",
 			);
 		}

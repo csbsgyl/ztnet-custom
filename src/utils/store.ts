@@ -109,7 +109,7 @@ type ModalStore = {
 	closeModal?: () => void;
 };
 
-export const useModalStore = create<ModalStore>((set, get) => ({
+export const useModalStore = create<ModalStore>((set) => ({
 	isOpen: false,
 	description: "",
 	content: null,
@@ -128,11 +128,7 @@ export const useModalStore = create<ModalStore>((set, get) => ({
 			rootStyle: "",
 		})),
 	toggleModal: () => set((state) => ({ isOpen: !state.isOpen })),
-	callModal: (data: IcallModal) => {
-		const { toggleModal } = get();
-		toggleModal();
-		set({ ...data });
-	},
+	callModal: (data: IcallModal) => set({ isOpen: true, ...data }),
 }));
 
 interface Message {

@@ -873,9 +873,31 @@
 				"modal": {
 					"noteTitle": "Hinweis!",
 					"customPlanetGenerated": "Benutzerdefinierter Planet wurde generiert.",
-					"restartContainerInstructions": "Sie müssen den Zerotier-Container neu starten, um die neue Konfiguration zu laden:<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "Sie müssen den Zerotier-Container neu starten, um die neue Konfiguration zu laden:<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Original-Planet wiederherstellen",
 					"restoreOriginalPlanetContent": "Möchten Sie wirklich die ursprüngliche Planeten-Datei wiederherstellen? Sichern Sie Ihre aktuelle Planet-Datei, wenn Sie die Schlüssel behalten möchten"
+				},
+				"restartPrompt": {
+					"title": "Planet-Konfiguration anwenden",
+					"operation": {
+						"generated": "Der Planet wurde erfolgreich erzeugt und gespeichert.",
+						"imported": "Die Planet-Konfiguration wurde erfolgreich importiert.",
+						"restored": "Der ursprüngliche Planet wurde erfolgreich wiederhergestellt."
+					},
+					"description": "Starten Sie ZeroTier neu, um die neue Planet- und Port-Konfiguration zu laden.",
+					"checking": "Verfügbarkeit des Ein-Klick-Neustarts wird geprüft...",
+					"connected": "Der Ein-Klick-Neustart ist verfügbar.",
+					"connectionError": "Der Neustartdienst antwortet nicht. Verwenden Sie den manuellen Befehl unten.",
+					"unavailable": "Der Ein-Klick-Neustart ist für diese Bereitstellung nicht verfügbar. Verwenden Sie den manuellen Befehl unten.",
+					"statusCheckFailed": "Der Neustartdienst konnte nicht geprüft werden. Starten Sie ZeroTier manuell neu.",
+					"manualCommand": "Manueller Neustartbefehl",
+					"restartNow": "ZeroTier jetzt neu starten",
+					"restarting": "ZeroTier wird neu gestartet",
+					"restartInProgress": "Ein ZeroTier-Neustart läuft bereits. Warten Sie kurz und versuchen Sie es erneut.",
+					"later": "Später",
+					"restartSuccess": "ZeroTier wurde erfolgreich neu gestartet",
+					"restartError": "ZeroTier konnte nicht neu gestartet werden",
+					"restartErrorHint": "Die Planet-Konfiguration ist gespeichert, aber ZeroTier konnte nicht neu gestartet werden. Verwenden Sie den manuellen Befehl oben."
 				}
 			},
 			"yes": "Ja",

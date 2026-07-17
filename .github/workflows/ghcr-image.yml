@@ -52,7 +52,27 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
 
-      - name: Build and push
+      - name: Restart helper metadata
+        id: ops_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=ops-latest,enable={{is_default_branch}}
+            type=sha,prefix=ops-sha-,format=short
+            type=ref,event=tag,prefix=ops-
+
+      - name: Build and push restart helper
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.ops
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.ops_meta.outputs.tags }}
+          labels: ${{ steps.ops_meta.outputs.labels }}
+
+      - name: Build and push application
         uses: docker/build-push-action@v6
         with:
           context: .

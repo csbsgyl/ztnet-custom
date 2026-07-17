@@ -1160,9 +1160,31 @@
 				"modal": {
 					"noteTitle": "NOTE!",
 					"customPlanetGenerated": "Custom planet has been generated.",
-					"restartContainerInstructions": "You will need to restart zerotier container to load the new configuration:<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "You will need to restart zerotier container to load the new configuration:<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Restore Original Planet",
 					"restoreOriginalPlanetContent": "Are you sure you want to restore the original planet file? Make sure to backup your current planet file if you want to keep the current keys"
+				},
+				"restartPrompt": {
+					"title": "Apply Planet configuration",
+					"operation": {
+						"generated": "The Planet was generated and saved successfully.",
+						"imported": "The Planet configuration was imported successfully.",
+						"restored": "The original Planet was restored successfully."
+					},
+					"description": "Restart ZeroTier to load the new Planet and port configuration.",
+					"checking": "Checking whether one-click restart is available...",
+					"connected": "One-click restart is available.",
+					"connectionError": "The restart service is not responding. Use the manual command below.",
+					"unavailable": "One-click restart is unavailable for this deployment. Use the manual command below.",
+					"statusCheckFailed": "Unable to check the restart service. Restart ZeroTier manually.",
+					"manualCommand": "Manual restart command",
+					"restartNow": "Restart ZeroTier now",
+					"restarting": "Restarting ZeroTier",
+					"restartInProgress": "A ZeroTier restart is already in progress. Wait a moment, then try again.",
+					"later": "Later",
+					"restartSuccess": "ZeroTier restarted successfully",
+					"restartError": "Unable to restart ZeroTier",
+					"restartErrorHint": "The Planet configuration is saved, but ZeroTier could not be restarted. Use the manual command above."
 				}
 			},
 			"yes": "Yes",

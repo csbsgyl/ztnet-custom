@@ -873,9 +873,31 @@
 				"modal": {
 					"noteTitle": "ВНИМАНИЕ!",
 					"customPlanetGenerated": "Пользовательский planet сгенерирован.",
-					"restartContainerInstructions": "Вам нужно перезапустить контейнер zerotier, чтобы загрузить новую конфигурацию:<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "Вам нужно перезапустить контейнер zerotier, чтобы загрузить новую конфигурацию:<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Восстановить оригинальный Planet",
 					"restoreOriginalPlanetContent": "Вы уверены, что хотите восстановить оригинальный файл planet? Убедитесь, что вы сделали резервную копию текущего файла planet, если хотите сохранить текущие ключи"
+				},
+				"restartPrompt": {
+					"title": "Применить конфигурацию Planet",
+					"operation": {
+						"generated": "Planet успешно создан и сохранён.",
+						"imported": "Конфигурация Planet успешно импортирована.",
+						"restored": "Исходный Planet успешно восстановлен."
+					},
+					"description": "Перезапустите ZeroTier, чтобы загрузить новую конфигурацию Planet и портов.",
+					"checking": "Проверка доступности перезапуска одним нажатием...",
+					"connected": "Перезапуск одним нажатием доступен.",
+					"connectionError": "Служба перезапуска не отвечает. Используйте команду ниже.",
+					"unavailable": "Перезапуск одним нажатием недоступен для этой установки. Используйте команду ниже.",
+					"statusCheckFailed": "Не удалось проверить службу перезапуска. Перезапустите ZeroTier вручную.",
+					"manualCommand": "Команда ручного перезапуска",
+					"restartNow": "Перезапустить ZeroTier сейчас",
+					"restarting": "Перезапуск ZeroTier",
+					"restartInProgress": "Перезапуск ZeroTier уже выполняется. Подождите немного и повторите попытку.",
+					"later": "Позже",
+					"restartSuccess": "ZeroTier успешно перезапущен",
+					"restartError": "Не удалось перезапустить ZeroTier",
+					"restartErrorHint": "Конфигурация Planet сохранена, но ZeroTier не удалось перезапустить. Используйте команду выше."
 				}
 			},
 			"yes": "Да",

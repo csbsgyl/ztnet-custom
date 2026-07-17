@@ -59,6 +59,9 @@ AUTO_UPDATE_INTERVAL=7200
 AUTO_UPDATE_CLEANUP=true
 UPDATE_API_URL=http://existing-updater:8080
 UPDATE_API_TOKEN=existing-update-token
+RESTART_API_URL=http://existing-restart-helper:8081
+RESTART_API_TOKEN=existing-restart-token-0123456789abcdef
+RESTART_HELPER_IMAGE=registry.example.com/ztnet-restart-helper:stable
 EOF
 
 POSTGRES_USER_PROVIDED=""
@@ -71,6 +74,9 @@ AUTO_UPDATE_INTERVAL_PROVIDED=""
 AUTO_UPDATE_CLEANUP_PROVIDED=""
 UPDATE_API_URL_PROVIDED=""
 UPDATE_API_TOKEN_PROVIDED=""
+RESTART_API_URL_PROVIDED=""
+RESTART_API_TOKEN_PROVIDED=""
+RESTART_HELPER_IMAGE_PROVIDED=""
 POSTGRES_USER="postgres"
 POSTGRES_DB="ztnet"
 POSTGRES_PASSWORD=""
@@ -81,6 +87,9 @@ AUTO_UPDATE_INTERVAL="3600"
 AUTO_UPDATE_CLEANUP="false"
 UPDATE_API_URL="http://updater:8080"
 UPDATE_API_TOKEN=""
+RESTART_API_URL="http://restart-helper:8081"
+RESTART_API_TOKEN=""
+RESTART_HELPER_IMAGE="$DEFAULT_RESTART_HELPER_IMAGE"
 load_existing_environment
 validate_auto_update
 assert_eq "existing-user" "$POSTGRES_USER" "preserves the existing database user"
@@ -93,10 +102,33 @@ assert_eq "7200" "$AUTO_UPDATE_INTERVAL" "preserves the existing update interval
 assert_eq "true" "$AUTO_UPDATE_CLEANUP" "preserves the existing cleanup setting"
 assert_eq "http://existing-updater:8080" "$UPDATE_API_URL" "preserves the update API URL"
 assert_eq "existing-update-token" "$UPDATE_API_TOKEN" "preserves the update API token"
+assert_eq "http://existing-restart-helper:8081" "$RESTART_API_URL" "preserves the restart API URL"
+assert_eq "existing-restart-token-0123456789abcdef" "$RESTART_API_TOKEN" "preserves the restart API token"
+assert_eq "registry.example.com/ztnet-restart-helper:stable" "$RESTART_HELPER_IMAGE" "preserves the restart helper image"
+RESTART_HELPER_SOURCE_IMAGE="$RESTART_HELPER_IMAGE"
 write_env_file
 assert_file_contains "${INSTALL_DIR}/.env" "POSTGRES_PASSWORD=existing-database-secret" "does not rotate the database password"
 assert_file_contains "${INSTALL_DIR}/.env" "NEXTAUTH_SECRET=existing-auth-secret" "does not rotate the auth secret"
 assert_file_contains "${INSTALL_DIR}/.env" "UPDATE_API_TOKEN=existing-update-token" "does not rotate the update API token"
+assert_file_contains "${INSTALL_DIR}/.env" "RESTART_API_TOKEN=existing-restart-token-0123456789abcdef" "does not rotate the restart API token"
+assert_file_contains "${INSTALL_DIR}/.env" "RESTART_HELPER_IMAGE=registry.example.com/ztnet-restart-helper:stable" "preserves the restart helper image in the environment"
+
+if (RESTART_API_TOKEN=short; write_env_file) >/dev/null 2>&1; then
+	printf 'FAIL: accepted a restart API token shorter than 32 characters\n' >&2
+	exit 1
+fi
+
+INSTALL_DIR="${TEST_TMP}/fresh-token"
+mkdir -p "$INSTALL_DIR"
+RESTART_API_TOKEN=""
+write_env_file
+assert_eq "64" "${#RESTART_API_TOKEN}" "generates a 32-byte restart API token"
+case "$RESTART_API_TOKEN" in
+	*[!0-9a-f]*)
+		printf 'FAIL: generated restart API token is not lowercase hexadecimal\n' >&2
+		exit 1
+		;;
+esac
 
 AUTO_UPDATE_PROVIDED="x"
 AUTO_UPDATE="true"
@@ -291,6 +323,54 @@ assert_eq \
 	"$ZTNET_IMAGE" \
 	"prefers an explicit fallback image in always mode"
 
+docker() {
+	case "$1" in
+		create) printf '%s\n' "restart-helper-check" ;;
+		cp) printf '%s\n' "export function createContainerOpsServer() {}" > "$3" ;;
+		rm) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+image_has_restart_helper "ghcr.io/csbsgyl/ztnet-custom:ops-latest"
+
+docker() {
+	case "$1" in
+		create) printf '%s\n' "restart-helper-check" ;;
+		cp) return 1 ;;
+		rm) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+if image_has_restart_helper "sinamics/ztnet:latest"; then
+	printf 'FAIL: accepted an image without container-ops.mjs as the restart helper\n' >&2
+	exit 1
+fi
+
+PULL_ATTEMPTS=""
+run_docker_pull() {
+	PULL_ATTEMPTS="${PULL_ATTEMPTS:+${PULL_ATTEMPTS},}$1"
+	return 0
+}
+image_has_restart_helper() {
+	[ "$1" = "ghcr.io/csbsgyl/ztnet-custom:ops-latest" ]
+}
+RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom:ops-latest"
+select_image \
+	"RESTART_HELPER_IMAGE" \
+	"$RESTART_HELPER_IMAGE" \
+	"stale.example.com/ztnet-custom:ops-latest" \
+	"RESTART_HELPER_MIRROR_IMAGES" \
+	"true" \
+	"image_has_restart_helper"
+assert_eq \
+	"stale.example.com/ztnet-custom:ops-latest,ghcr.io/csbsgyl/ztnet-custom:ops-latest" \
+	"$PULL_ATTEMPTS" \
+	"skips a reachable but incompatible helper mirror"
+assert_eq \
+	"ghcr.io/csbsgyl/ztnet-custom:ops-latest" \
+	"$RESTART_HELPER_IMAGE" \
+	"selects the first compatible helper image"
+
 INSTALL_DIR="${TEST_TMP}/updates-enabled"
 mkdir -p "$INSTALL_DIR"
 AUTO_UPDATE="true"
@@ -298,9 +378,13 @@ AUTO_UPDATE_INTERVAL="3600"
 AUTO_UPDATE_CLEANUP="false"
 UPDATE_API_URL="http://updater:8080"
 UPDATE_API_TOKEN="existing-update-token"
+RESTART_API_URL="http://restart-helper:8081"
+RESTART_API_TOKEN="existing-restart-token-0123456789abcdef"
+RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom:ops-latest"
+RESTART_HELPER_SOURCE_IMAGE="$RESTART_HELPER_IMAGE"
 UPDATER_IMAGE="docker.xiaohangyun.org/nickfedor/watchtower:1.19.0"
 write_compose_file
-assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.watchtower.enable: \"true\"" "labels ZTNET for updates"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.watchtower.enable: \"true\"" "labels ZTNET services for updates"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "image: docker.xiaohangyun.org/nickfedor/watchtower:1.19.0" "writes the selected updater image"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_POLL_INTERVAL: \"3600\"" "writes the update interval"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_HTTP_API_UPDATE: \"true\"" "enables manual update requests"
@@ -310,15 +394,33 @@ assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "WATCHTOWER_HTTP_API_TO
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.watchtower.scope: \"ztnet-custom\"" "scopes the application and updater"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "/var/run/docker.sock:/var/run/docker.sock" "mounts the Docker socket"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - app-network" "connects the updater to the private application network"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "  restart-helper:" "adds the scoped restart helper"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "image: ghcr.io/csbsgyl/ztnet-custom:ops-latest" "uses the dedicated restart helper image"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "entrypoint: [\"node\", \"/app/container-ops.mjs\"]" "starts the fixed container operations service"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "    command: []" "clears the application image command for the restart helper"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "io.ztnet.instance: \"ztnet-custom\"" "labels the managed ZeroTier instance"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "io.ztnet.role: zerotier" "labels only ZeroTier as the restart target"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "io.ztnet.restart-enabled: \"true\"" "explicitly enables the ZeroTier restart target"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "RESTART_API_URL: \${RESTART_API_URL}" "passes the private restart URL to ZTNET"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "RESTART_API_TOKEN: \${RESTART_API_TOKEN}" "shares the restart token without embedding its value"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "    read_only: true" "uses a read-only helper root filesystem"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - no-new-privileges:true" "prevents helper privilege escalation"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "/var/run/docker.sock:/var/run/docker.sock:ro" "mounts the helper Docker socket read-only"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "  ops-network:" "adds an isolated operations network"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "    internal: true" "keeps the operations network internal"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - ./backups:/app/backups" "persists application backups on the host"
 assert_eq \
 	"1" \
 	"$(grep -Fc './backups:/app/backups' "${INSTALL_DIR}/docker-compose.yml")" \
 	"mounts the backup directory in exactly one service"
 assert_eq \
-	"1" \
+	"2" \
 	"$(grep -Fc 'com.centurylinklabs.watchtower.enable: "true"' "${INSTALL_DIR}/docker-compose.yml")" \
-	"enables updates for exactly one container"
+	"enables updates for the application and restart helper only"
+assert_eq \
+	"2" \
+	"$(grep -Fc '/var/run/docker.sock:/var/run/docker.sock' "${INSTALL_DIR}/docker-compose.yml")" \
+	"mounts the Docker socket only in the updater and restart helper"
 
 INSTALL_DIR="${TEST_TMP}/updates-disabled"
 mkdir -p "$INSTALL_DIR"
@@ -326,5 +428,10 @@ AUTO_UPDATE="false"
 write_compose_file
 assert_file_not_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.watchtower.enable" "omits update labels when disabled"
 assert_file_not_contains "${INSTALL_DIR}/docker-compose.yml" "  updater:" "omits the updater service when disabled"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "  restart-helper:" "keeps restart operations available when updates are disabled"
+assert_eq \
+	"1" \
+	"$(grep -Fc '/var/run/docker.sock:/var/run/docker.sock' "${INSTALL_DIR}/docker-compose.yml")" \
+	"mounts the Docker socket only in the restart helper when updates are disabled"
 
 printf 'one-click installer tests passed\n'

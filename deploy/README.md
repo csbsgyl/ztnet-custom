@@ -8,6 +8,7 @@ The installer creates a Docker Compose deployment with:
 - ZeroTier
 - ZTNET
 - A scoped background updater for ZTNET
+- A private, restart-only operations helper for ZeroTier
 
 Supported hosts: Linux `amd64` and `arm64`.
 
@@ -68,17 +69,27 @@ curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/on
 
 ## Automatic updates
 
-Automatic ZTNET updates are enabled by default. The updater checks the configured ZTNET image digest every hour and recreates only the ZTNET application container when the digest changes. PostgreSQL, ZeroTier, and the updater itself are not automatically upgraded.
+Automatic ZTNET updates are enabled by default. The updater checks the configured application and restart-helper image digests every hour and recreates either labeled service when its image changes. PostgreSQL, ZeroTier, and the updater itself are not automatically upgraded.
 
 Administrators can view the current build, latest successful image build, updater connection, and polling interval under **Admin > System Update**. The page can also request an immediate scoped update check.
 
-Existing installations need to run the installer once to add the private updater API used by this page. Existing database credentials, auth secrets, public URL, update settings, and update API token are preserved on later runs:
+Existing installations need to run the installer once to add the private updater API and restart helper. Existing database credentials, auth secrets, public URL, update settings, update API token, and restart API token are preserved on later runs:
 
 ```bash
 curl --retry 2 --retry-all-errors -fL \
   -H 'Accept: application/vnd.github.raw+json' \
   'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo bash
 ```
+
+For deployments maintained directly from `deploy/docker-compose.yml`, add the new required token to the existing `.env` before running `docker compose up -d`:
+
+```bash
+printf 'RESTART_API_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
+```
+
+Also add `RESTART_HELPER_IMAGE=ghcr.io/csbsgyl/ztnet-custom:ops-latest` when migrating an existing hand-maintained deployment. Compose intentionally fails closed when the restart token is absent rather than starting with a predictable credential.
+
+The installer inspects the selected helper image without starting it and refuses to continue unless `/app/container-ops.mjs` is present. Immediately after a new source release, wait for the matching container build if every registry mirror still serves the previous image.
 
 After that one-time command, future application releases are detected and installed in the background or can be requested from the admin page. View updater activity with:
 
@@ -104,6 +115,19 @@ curl --retry 2 --retry-all-errors -fL \
 ```
 
 Old application images are retained by default for manual rollback. Set `AUTO_UPDATE_CLEANUP=true` only when automatic removal of replaced images is preferred.
+
+## Private ZeroTier restart helper
+
+The deployment includes a restart-only helper so the ZTNET web container never receives the Docker socket. It is published as a separate minimal Node Alpine image rather than reusing the full application image. The helper:
+
+- listens only on an internal Compose network and publishes no host port;
+- requires the independently generated `RESTART_API_TOKEN` as a Bearer token;
+- accepts only `GET /v1/health` and bodyless `POST /v1/restart-zerotier` requests;
+- resolves exactly one container carrying the deployment instance, `zerotier` role, and explicit restart-enabled labels;
+- never accepts a container name, command, image, or other Docker operation from a request;
+- rejects concurrent restart requests, applies short Docker API timeouts, and verifies the target remains running after restart.
+
+The helper mounts `/var/run/docker.sock`, which still grants that helper Docker daemon control. Its container uses a read-only root filesystem, drops Linux capabilities, and enables `no-new-privileges`. Keep the helper private and protect its token.
 
 ## Registry acceleration
 
@@ -184,6 +208,10 @@ Supported environment variables:
 | `AUTO_UPDATE_CLEANUP` | `false` | Remove replaced images after a successful update. |
 | `UPDATE_API_URL` | `http://updater:8080` | Private Compose-network URL used by the admin update page. |
 | `UPDATE_API_TOKEN` | random | Private token shared by ZTNET and Watchtower; generated once and preserved. |
+| `RESTART_API_URL` | `http://restart-helper:8081` | Internal-only URL for the fixed ZeroTier restart operation. |
+| `RESTART_API_TOKEN` | random | Separate Bearer token shared by ZTNET and the restart helper; at least 32 characters, generated once and preserved. |
+| `RESTART_HELPER_IMAGE` | `ghcr.io/csbsgyl/ztnet-custom:ops-latest` | Minimal image containing only the fixed restart helper and its Node runtime. |
+| `RESTART_HELPER_MIRROR_IMAGES` | fork mirror list | Comma-separated fallback images used only for the restart helper. |
 | `BACKUP_DIR` | `/app/backups` | Persistent in-container path for server-side backup archives. |
 | `UPDATER_IMAGE` | `nickfedor/watchtower:1.19.0` | Background updater image. |
 | `UPDATER_MIRROR_IMAGE` | auto-generated | Override the Docker mirror image selected for the updater. |
@@ -195,6 +223,7 @@ cd /opt/ztnet-custom
 docker compose ps
 docker compose logs -f ztnet
 docker compose logs -f updater
+docker compose logs -f restart-helper
 docker compose pull
 docker compose up -d
 ```
@@ -221,8 +250,9 @@ Candidate fallback begins after the current `docker pull` exits. If a broken net
 - `github.xiaohangyun.org` accelerates GitHub file downloads only. It is not a Docker Registry and does not replace the GHCR image URL.
 - The GitHub accelerator is a third-party download proxy. Its response is checked against the committed installer in CI, but operators should still use only accelerators they trust.
 - If the GitHub accelerator reports a self-signed certificate, use the direct `raw.githubusercontent.com` command or wait for the accelerator certificate to recover. Do not bypass TLS verification unless the downloaded script is checked against a trusted SHA-256 value.
-- Automatic updates require mounting `/var/run/docker.sock` into the updater, which grants Docker daemon control. The updater is scoped and label-restricted to the ZTNET application container.
-- The ZTNET web container does not receive the Docker socket. Manual update requests use a token-protected Watchtower endpoint available only on the private Compose network; port `8080` is not published on the host.
+- Automatic updates require mounting `/var/run/docker.sock` into the updater, which grants Docker daemon control. The updater is scoped and label-restricted to the ZTNET application and restart helper containers.
+- The restart helper also mounts the Docker socket, but exposes only one fixed, label-scoped ZeroTier restart operation over an internal network. Its port `8081` is not published on the host.
+- The ZTNET web container does not receive the Docker socket. Manual update and restart requests use separate token-protected endpoints and tokens; neither operations port is published on the host.
 - Automatic updates require a mutable image tag such as `latest`; digest-pinned images intentionally do not move to newer releases.
 - Keep database backups. Application releases may include database migrations even though the PostgreSQL container itself is not updated.
 - One-click deployments bind-mount `/opt/ztnet-custom/backups` into the app. Keep an additional downloaded copy off the server.

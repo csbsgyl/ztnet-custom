@@ -6,12 +6,18 @@ on:
       - main
     paths:
       - "deploy/**"
+      - "container-ops.mjs"
+      - "Dockerfile"
+      - "Dockerfile.ops"
       - ".github/workflows/deployment-check.yml"
   pull_request:
     branches:
       - main
     paths:
       - "deploy/**"
+      - "container-ops.mjs"
+      - "Dockerfile"
+      - "Dockerfile.ops"
       - ".github/workflows/deployment-check.yml"
   workflow_dispatch:
 
@@ -31,6 +37,17 @@ jobs:
 
       - name: Check installer syntax
         run: bash -n deploy/one-click-install.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test container operations helper
+        run: node --test deploy/tests/container-ops.test.mjs
+
+      - name: Build restart helper image
+        run: docker build -f Dockerfile.ops -t ztnet-restart-helper:test .
 
       - name: Verify GitHub accelerator
         env:
@@ -52,4 +69,19 @@ jobs:
         run: bash deploy/tests/one-click-install-test.sh
 
       - name: Validate Docker Compose
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet
+        run: |
+          docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet
+
+          generated_dir="$(mktemp -d)"
+          trap 'rm -rf "$generated_dir"' EXIT
+          export INSTALL_DIR="$generated_dir"
+          export ZTNET_INSTALLER_SOURCE_ONLY=1
+          source deploy/one-click-install.sh
+          mkdir -p "$INSTALL_DIR"
+          write_env_file
+          write_compose_file
+          docker compose --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" config --quiet
+
+          AUTO_UPDATE=false
+          write_compose_file
+          docker compose --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" config --quiet

@@ -873,9 +873,31 @@
 				"modal": {
 					"noteTitle": "NOTE!",
 					"customPlanetGenerated": "Une planète personnalisée a été générée.",
-					"restartContainerInstructions": "Vous devrez redémarrer le conteneur Zerotier pour charger la nouvelle configuration :<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "Vous devrez redémarrer le conteneur Zerotier pour charger la nouvelle configuration :<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Restaurer la planète d'origine",
 					"restoreOriginalPlanetContent": "Etes-vous sûr de vouloir restaurer le fichier planète d'origine ? Assurez-vous de sauvegarder votre fichier planète actuel si vous souhaitez conserver les clés actuelles"
+				},
+				"restartPrompt": {
+					"title": "Appliquer la configuration Planet",
+					"operation": {
+						"generated": "Le Planet a été généré et enregistré avec succès.",
+						"imported": "La configuration Planet a été importée avec succès.",
+						"restored": "Le Planet d'origine a été restauré avec succès."
+					},
+					"description": "Redémarrez ZeroTier pour charger la nouvelle configuration Planet et des ports.",
+					"checking": "Vérification de la disponibilité du redémarrage en un clic...",
+					"connected": "Le redémarrage en un clic est disponible.",
+					"connectionError": "Le service de redémarrage ne répond pas. Utilisez la commande manuelle ci-dessous.",
+					"unavailable": "Le redémarrage en un clic n'est pas disponible pour ce déploiement. Utilisez la commande manuelle ci-dessous.",
+					"statusCheckFailed": "Impossible de vérifier le service de redémarrage. Redémarrez ZeroTier manuellement.",
+					"manualCommand": "Commande de redémarrage manuel",
+					"restartNow": "Redémarrer ZeroTier maintenant",
+					"restarting": "Redémarrage de ZeroTier",
+					"restartInProgress": "Un redémarrage de ZeroTier est déjà en cours. Patientez un instant, puis réessayez.",
+					"later": "Plus tard",
+					"restartSuccess": "ZeroTier a été redémarré avec succès",
+					"restartError": "Impossible de redémarrer ZeroTier",
+					"restartErrorHint": "La configuration Planet est enregistrée, mais ZeroTier n'a pas pu être redémarré. Utilisez la commande manuelle ci-dessus."
 				}
 			},
 			"yes": "Oui",

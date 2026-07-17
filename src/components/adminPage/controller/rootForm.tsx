@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import Input from "~/components/elements/input";
 import type { ErrorData } from "~/types/errorHandling";
 import { api } from "~/utils/api";
-import { useModalStore } from "~/utils/store";
+import { usePlanetRestartPrompt } from "./planetRestartPrompt";
 
 interface RootNode {
 	endpoints: string[];
@@ -87,9 +87,21 @@ const RootNodesArray: React.FC<RootNodesArrayProps> = ({
 	);
 };
 
-const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+interface RootFormProps {
+	onClose: () => void;
+	disabled?: boolean;
+	beginOperation?: () => boolean;
+	endOperation?: () => void;
+}
+
+const RootForm: React.FC<RootFormProps> = ({
+	onClose,
+	disabled = false,
+	beginOperation,
+	endOperation,
+}) => {
 	const t = useTranslations("admin");
-	const callModal = useModalStore((state) => state.callModal);
+	const showPlanetRestartPrompt = usePlanetRestartPrompt();
 	const { data: getPlanet, refetch: refetchPlanet } = api.admin.getPlanet.useQuery();
 
 	const { data: getIdentity } = api.admin.getIdentity.useQuery();
@@ -146,26 +158,9 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 		});
 	}, [getPlanet, getIdentity]);
 
-	const { mutate: makeWorld } = api.admin.makeWorld.useMutation({
+	const { mutate: makeWorld, isLoading: isSaving } = api.admin.makeWorld.useMutation({
 		onSuccess: () => {
-			// refetchOptions();
-			callModal({
-				title: <p>{t("controller.generatePlanet.modal.noteTitle")}</p>,
-				rootStyle: "text-left border border-yellow-300/30",
-				yesAction: null,
-				content: (
-					<span>
-						{t("controller.generatePlanet.modal.customPlanetGenerated")}
-						<br />
-						<p>
-							{t.rich("controller.generatePlanet.modal.restartContainerInstructions", {
-								span: (content) => <span className="text-yellow-300">{content} </span>,
-								br: () => <br />,
-							})}
-						</p>
-					</span>
-				),
-			});
+			showPlanetRestartPrompt("generated");
 		},
 		onError: (error) => {
 			if ((error.data as ErrorData)?.zodError) {
@@ -179,6 +174,7 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 				toast.error("An unknown error occurred");
 			}
 		},
+		onSettled: () => endOperation?.(),
 	});
 
 	const inputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -299,6 +295,7 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 					<button
 						onClick={(e) => {
 							e.preventDefault();
+							if (disabled || isSaving || (beginOperation && !beginOperation())) return;
 							makeWorld(
 								{
 									...world,
@@ -318,6 +315,7 @@ const RootForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 						}}
 						className={"btn btn-primary btn-sm"}
 						type="submit"
+						disabled={disabled || isSaving}
 					>
 						{getPlanet?.rootNodes
 							? t("controller.generatePlanet.buttons.updateWorld")

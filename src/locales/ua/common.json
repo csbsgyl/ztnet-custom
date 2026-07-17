@@ -873,9 +873,31 @@
 				"modal": {
 					"noteTitle": "УВАГА!",
 					"customPlanetGenerated": "Користувацький planet згенеровано.",
-					"restartContainerInstructions": "Вам потрібно перезапустити контейнер zerotier, щоб завантажити нову конфігурацію:<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "Вам потрібно перезапустити контейнер zerotier, щоб завантажити нову конфігурацію:<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Відновити оригінальний Planet",
 					"restoreOriginalPlanetContent": "Ви впевнені, що хочете відновити оригінальний файл planet? Переконайтеся, що ви зробили резервну копію поточного файлу planet, якщо хочете зберегти поточні ключі"
+				},
+				"restartPrompt": {
+					"title": "Застосувати конфігурацію Planet",
+					"operation": {
+						"generated": "Planet успішно створено та збережено.",
+						"imported": "Конфігурацію Planet успішно імпортовано.",
+						"restored": "Початковий Planet успішно відновлено."
+					},
+					"description": "Перезапустіть ZeroTier, щоб завантажити нову конфігурацію Planet і портів.",
+					"checking": "Перевірка доступності перезапуску одним натисканням...",
+					"connected": "Перезапуск одним натисканням доступний.",
+					"connectionError": "Служба перезапуску не відповідає. Скористайтеся командою нижче.",
+					"unavailable": "Перезапуск одним натисканням недоступний для цього розгортання. Скористайтеся командою нижче.",
+					"statusCheckFailed": "Не вдалося перевірити службу перезапуску. Перезапустіть ZeroTier вручну.",
+					"manualCommand": "Команда ручного перезапуску",
+					"restartNow": "Перезапустити ZeroTier зараз",
+					"restarting": "Перезапуск ZeroTier",
+					"restartInProgress": "Перезапуск ZeroTier уже виконується. Зачекайте трохи та повторіть спробу.",
+					"later": "Пізніше",
+					"restartSuccess": "ZeroTier успішно перезапущено",
+					"restartError": "Не вдалося перезапустити ZeroTier",
+					"restartErrorHint": "Конфігурацію Planet збережено, але ZeroTier не вдалося перезапустити. Скористайтеся командою вище."
 				}
 			},
 			"yes": "Так",

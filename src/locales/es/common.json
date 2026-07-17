@@ -873,9 +873,31 @@
 				"modal": {
 					"noteTitle": "¡NOTA!",
 					"customPlanetGenerated": "Se ha generado un planeta personalizado.",
-					"restartContainerInstructions": "Necesitará reiniciar el contenedor zerotier para cargar la nueva configuración:<br></br><br></br><span>docker restart zerotier</span>",
+					"restartContainerInstructions": "Necesitará reiniciar el contenedor zerotier para cargar la nueva configuración:<br></br><br></br><span>docker compose restart zerotier</span>",
 					"restoreOriginalPlanetTitle": "Restaurar Planeta Original",
 					"restoreOriginalPlanetContent": "¿Está seguro de que desea restaurar el archivo del planeta original? Asegúrese de hacer una copia de seguridad de su archivo de planeta actual si desea mantener las claves actuales"
+				},
+				"restartPrompt": {
+					"title": "Aplicar configuración de Planet",
+					"operation": {
+						"generated": "Planet se generó y guardó correctamente.",
+						"imported": "La configuración de Planet se importó correctamente.",
+						"restored": "El Planet original se restauró correctamente."
+					},
+					"description": "Reinicie ZeroTier para cargar la nueva configuración de Planet y de puertos.",
+					"checking": "Comprobando si está disponible el reinicio con un clic...",
+					"connected": "El reinicio con un clic está disponible.",
+					"connectionError": "El servicio de reinicio no responde. Use el comando manual de abajo.",
+					"unavailable": "El reinicio con un clic no está disponible en este despliegue. Use el comando manual de abajo.",
+					"statusCheckFailed": "No se pudo comprobar el servicio de reinicio. Reinicie ZeroTier manualmente.",
+					"manualCommand": "Comando de reinicio manual",
+					"restartNow": "Reiniciar ZeroTier ahora",
+					"restarting": "Reiniciando ZeroTier",
+					"restartInProgress": "Ya hay un reinicio de ZeroTier en curso. Espere un momento e inténtelo de nuevo.",
+					"later": "Más tarde",
+					"restartSuccess": "ZeroTier se reinició correctamente",
+					"restartError": "No se pudo reiniciar ZeroTier",
+					"restartErrorHint": "La configuración de Planet está guardada, pero ZeroTier no pudo reiniciarse. Use el comando manual de arriba."
 				}
 			},
 			"yes": "Sí",

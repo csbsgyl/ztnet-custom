@@ -1,0 +1,8 @@
+FROM node:24-alpine
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY container-ops.mjs ./container-ops.mjs
+
+ENTRYPOINT ["node", "/app/container-ops.mjs"]

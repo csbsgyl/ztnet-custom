@@ -10,6 +10,9 @@ interface IProps {
 	handleFileChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
 	triggerFileInput: () => void;
 	closeForm: () => void;
+	isOperationPending: boolean;
+	beginOperation: () => boolean;
+	endOperation: () => void;
 }
 const CreatePlanet = ({
 	getPlanet,
@@ -19,6 +22,9 @@ const CreatePlanet = ({
 	handleFileChange,
 	triggerFileInput,
 	closeForm,
+	isOperationPending,
+	beginOperation,
+	endOperation,
 }: IProps) => {
 	const t = useTranslations("admin");
 
@@ -40,7 +46,11 @@ const CreatePlanet = ({
 				</svg>
 				<span>{getPlanet?.error?.message}</span>
 				<div>
-					<button onClick={() => resetWorld()} className="btn btn-sm">
+					<button
+						onClick={() => resetWorld()}
+						className="btn btn-sm"
+						disabled={isOperationPending}
+					>
 						Reset
 					</button>
 				</div>
@@ -65,6 +75,7 @@ const CreatePlanet = ({
 						onClick={() => setOpen(!open)}
 						data-testid="view-form"
 						className="btn btn-sm"
+						disabled={isOperationPending}
 					>
 						{t("controller.generatePlanet.buttons.createPlanet")}
 					</button>
@@ -74,17 +85,26 @@ const CreatePlanet = ({
 						style={{ display: "none" }}
 						onChange={handleFileChange}
 						accept=".zip"
+						disabled={isOperationPending}
 					/>
 					<button
 						data-testid="view-form"
 						className="btn btn-sm"
 						onClick={triggerFileInput}
+						disabled={isOperationPending}
 					>
 						{t("controller.generatePlanet.buttons.uploadConfig")}
 					</button>
 				</div>
 			</div>
-			{open ? <RootForm onClose={closeForm} /> : null}
+			{open ? (
+				<RootForm
+					onClose={closeForm}
+					disabled={isOperationPending}
+					beginOperation={beginOperation}
+					endOperation={endOperation}
+				/>
+			) : null}
 		</div>
 	);
 };

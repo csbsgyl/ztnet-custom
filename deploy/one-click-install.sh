@@ -10,8 +10,12 @@ AUTO_UPDATE_PROVIDED="${AUTO_UPDATE+x}"
 AUTO_UPDATE_INTERVAL_PROVIDED="${AUTO_UPDATE_INTERVAL+x}"
 AUTO_UPDATE_CLEANUP_PROVIDED="${AUTO_UPDATE_CLEANUP+x}"
 ZTNET_MIRROR_IMAGES_PROVIDED="${ZTNET_MIRROR_IMAGES+x}"
+RESTART_HELPER_IMAGE_PROVIDED="${RESTART_HELPER_IMAGE+x}"
+RESTART_HELPER_MIRROR_IMAGES_PROVIDED="${RESTART_HELPER_MIRROR_IMAGES+x}"
 UPDATE_API_TOKEN_PROVIDED="${UPDATE_API_TOKEN+x}"
 UPDATE_API_URL_PROVIDED="${UPDATE_API_URL+x}"
+RESTART_API_TOKEN_PROVIDED="${RESTART_API_TOKEN+x}"
+RESTART_API_URL_PROVIDED="${RESTART_API_URL+x}"
 
 APP_NAME="${APP_NAME:-ztnet-custom}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
@@ -19,7 +23,11 @@ HTTP_PORT="${HTTP_PORT:-3000}"
 APP_SUBNET="${APP_SUBNET:-172.31.255.0/29}"
 DEFAULT_ZTNET_IMAGE="ghcr.io/csbsgyl/ztnet-custom:latest"
 DEFAULT_ZTNET_MIRROR_IMAGES="ghcr.nju.edu.cn/csbsgyl/ztnet-custom:latest,ghcr.dockerproxy.net/csbsgyl/ztnet-custom:latest,ghcr.1ms.run/csbsgyl/ztnet-custom:latest,ghcr.chenby.cn/csbsgyl/ztnet-custom:latest"
+DEFAULT_RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom:ops-latest"
+DEFAULT_RESTART_HELPER_MIRROR_IMAGES="ghcr.nju.edu.cn/csbsgyl/ztnet-custom:ops-latest,ghcr.dockerproxy.net/csbsgyl/ztnet-custom:ops-latest,ghcr.1ms.run/csbsgyl/ztnet-custom:ops-latest,ghcr.chenby.cn/csbsgyl/ztnet-custom:ops-latest"
 ZTNET_IMAGE="${ZTNET_IMAGE:-${DEFAULT_ZTNET_IMAGE}}"
+RESTART_HELPER_IMAGE="${RESTART_HELPER_IMAGE:-${DEFAULT_RESTART_HELPER_IMAGE}}"
+RESTART_HELPER_SOURCE_IMAGE="$RESTART_HELPER_IMAGE"
 ZEROTIER_IMAGE="${ZEROTIER_IMAGE:-zyclonite/zerotier:1.14.2}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:15.2-alpine}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
@@ -34,6 +42,7 @@ DOCKER_PULL_TIMEOUT="${DOCKER_PULL_TIMEOUT:-0}"
 REGISTRY_PROBE_TIMEOUT="${REGISTRY_PROBE_TIMEOUT:-8}"
 ZTNET_MIRROR_IMAGE="${ZTNET_MIRROR_IMAGE:-}"
 ZTNET_MIRROR_IMAGES="${ZTNET_MIRROR_IMAGES:-}"
+RESTART_HELPER_MIRROR_IMAGES="${RESTART_HELPER_MIRROR_IMAGES:-}"
 ZEROTIER_MIRROR_IMAGE="${ZEROTIER_MIRROR_IMAGE:-}"
 POSTGRES_MIRROR_IMAGE="${POSTGRES_MIRROR_IMAGE:-}"
 AUTO_UPDATE="${AUTO_UPDATE:-true}"
@@ -41,6 +50,8 @@ AUTO_UPDATE_INTERVAL="${AUTO_UPDATE_INTERVAL:-3600}"
 AUTO_UPDATE_CLEANUP="${AUTO_UPDATE_CLEANUP:-false}"
 UPDATE_API_URL="${UPDATE_API_URL:-http://updater:8080}"
 UPDATE_API_TOKEN="${UPDATE_API_TOKEN:-}"
+RESTART_API_URL="${RESTART_API_URL:-http://restart-helper:8081}"
+RESTART_API_TOKEN="${RESTART_API_TOKEN:-}"
 UPDATER_IMAGE="${UPDATER_IMAGE:-nickfedor/watchtower:1.19.0}"
 UPDATER_MIRROR_IMAGE="${UPDATER_MIRROR_IMAGE:-}"
 
@@ -132,6 +143,9 @@ load_existing_environment() {
 	restore_existing_value "AUTO_UPDATE_CLEANUP" "$AUTO_UPDATE_CLEANUP_PROVIDED" "AUTO_UPDATE_CLEANUP" "$file"
 	restore_existing_value "UPDATE_API_URL" "$UPDATE_API_URL_PROVIDED" "UPDATE_API_URL" "$file"
 	restore_existing_value "UPDATE_API_TOKEN" "$UPDATE_API_TOKEN_PROVIDED" "UPDATE_API_TOKEN" "$file"
+	restore_existing_value "RESTART_API_URL" "$RESTART_API_URL_PROVIDED" "RESTART_API_URL" "$file"
+	restore_existing_value "RESTART_API_TOKEN" "$RESTART_API_TOKEN_PROVIDED" "RESTART_API_TOKEN" "$file"
+	restore_existing_value "RESTART_HELPER_IMAGE" "$RESTART_HELPER_IMAGE_PROVIDED" "RESTART_HELPER_IMAGE" "$file"
 }
 
 probe_url() {
@@ -272,6 +286,10 @@ configure_ztnet_mirror_images() {
 			ZTNET_MIRROR_IMAGES="$ZTNET_MIRROR_IMAGE"
 		fi
 	fi
+
+	if [ "$RESTART_HELPER_MIRROR_IMAGES_PROVIDED" != "x" ] && [ "$RESTART_HELPER_IMAGE" = "$DEFAULT_RESTART_HELPER_IMAGE" ]; then
+		RESTART_HELPER_MIRROR_IMAGES="$DEFAULT_RESTART_HELPER_MIRROR_IMAGES"
+	fi
 }
 
 run_docker_pull() {
@@ -300,6 +318,7 @@ select_image() {
 	local explicit_mirrors="$3"
 	local fallback_name="$4"
 	local prefer_mirrors="${5:-false}"
+	local validator="${6:-}"
 	local generated_mirror=""
 	local registry_url
 	local direct_reachable=1
@@ -350,16 +369,22 @@ select_image() {
 
 	for candidate in "${candidates[@]}"; do
 		seen=0
-		for existing in "${attempted[@]}"; do
-			if [ "$candidate" = "$existing" ]; then
-				seen=1
-				break
-			fi
-		done
+		if [ "${#attempted[@]}" -gt 0 ]; then
+			for existing in "${attempted[@]}"; do
+				if [ "$candidate" = "$existing" ]; then
+					seen=1
+					break
+				fi
+			done
+		fi
 		[ "$seen" -eq 1 ] && continue
 
 		attempted+=("$candidate")
 		if run_docker_pull "$candidate"; then
+			if [ -n "$validator" ] && ! "$validator" "$candidate"; then
+				warn "Image is incompatible with ${variable_name}: ${candidate}"
+				continue
+			fi
 			printf -v "$variable_name" '%s' "$candidate"
 			return
 		fi
@@ -368,13 +393,44 @@ select_image() {
 
 	for candidate in "${attempted[@]}"; do
 		if docker image inspect "$candidate" >/dev/null 2>&1; then
+			if [ -n "$validator" ] && ! "$validator" "$candidate"; then
+				warn "Cached image is incompatible with ${variable_name}: ${candidate}"
+				continue
+			fi
 			warn "Using cached image after pull failure: ${candidate}"
 			printf -v "$variable_name" '%s' "$candidate"
 			return
 		fi
 	done
 
+	if [ -n "$validator" ]; then
+		fail "Unable to find a compatible image for ${variable_name}. Set ${fallback_name} to a current fork image or wait for the image build to finish."
+	fi
 	fail "Unable to pull ${direct_image}. Set ${fallback_name} to a reachable registry copy or check registry connectivity."
+}
+
+image_has_restart_helper() {
+	local image="$1"
+	local temporary_directory
+	local container_id=""
+	local helper_path
+	local valid=1
+
+	temporary_directory="$(mktemp -d)"
+	helper_path="${temporary_directory}/container-ops.mjs"
+	container_id="$(docker create "$image" 2>/dev/null || true)"
+	if [ -n "$container_id" ] &&
+		docker cp "${container_id}:/app/container-ops.mjs" "$helper_path" >/dev/null 2>&1 &&
+		[ -s "$helper_path" ] &&
+		grep -Fq "createContainerOpsServer" "$helper_path"; then
+		valid=0
+	fi
+
+	if [ -n "$container_id" ]; then
+		docker rm -f "$container_id" >/dev/null 2>&1 || true
+	fi
+	rm -rf "$temporary_directory"
+	return "$valid"
 }
 
 require_root() {
@@ -474,6 +530,12 @@ write_env_file() {
 	if [ -z "$UPDATE_API_TOKEN" ]; then
 		UPDATE_API_TOKEN="$(random_secret)"
 	fi
+	if [ -z "$RESTART_API_TOKEN" ]; then
+		RESTART_API_TOKEN="$(random_secret)"
+	fi
+	if [ "${#RESTART_API_TOKEN}" -lt 32 ]; then
+		fail "RESTART_API_TOKEN must contain at least 32 characters."
+	fi
 
 	cat > "${INSTALL_DIR}/.env" <<EOF
 POSTGRES_USER=${POSTGRES_USER}
@@ -489,6 +551,9 @@ AUTO_UPDATE_CLEANUP=${AUTO_UPDATE_CLEANUP}
 ZTNET_IMAGE=${ZTNET_IMAGE}
 UPDATE_API_URL=${UPDATE_API_URL}
 UPDATE_API_TOKEN=${UPDATE_API_TOKEN}
+RESTART_API_URL=${RESTART_API_URL}
+RESTART_API_TOKEN=${RESTART_API_TOKEN}
+RESTART_HELPER_IMAGE=${RESTART_HELPER_SOURCE_IMAGE}
 EOF
 	chmod 600 "${INSTALL_DIR}/.env"
 }
@@ -530,6 +595,10 @@ services:
     environment:
       - ZT_OVERRIDE_LOCAL_CONF=true
       - ZT_ALLOW_MANAGEMENT_FROM=${APP_SUBNET}
+    labels:
+      io.ztnet.instance: "${APP_NAME}"
+      io.ztnet.role: zerotier
+      io.ztnet.restart-enabled: "true"
 
   ztnet:
     image: ${ZTNET_IMAGE}
@@ -552,9 +621,12 @@ services:
       NEXTAUTH_URL: \${NEXTAUTH_URL}
       NEXTAUTH_SECRET: \${NEXTAUTH_SECRET}
       NEXTAUTH_URL_INTERNAL: \${NEXTAUTH_URL_INTERNAL}
+      RESTART_API_URL: \${RESTART_API_URL}
+      RESTART_API_TOKEN: \${RESTART_API_TOKEN}
       BACKUP_DIR: /app/backups
     networks:
       - app-network
+      - ops-network
 EOF
 
 	if [ "$AUTO_UPDATE" = "true" ]; then
@@ -568,6 +640,41 @@ EOF
 	cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
     depends_on:
       - postgres
+      - zerotier
+
+  restart-helper:
+    image: ${RESTART_HELPER_IMAGE}
+    container_name: ${APP_NAME}-restart-helper
+    restart: unless-stopped
+    entrypoint: ["node", "/app/container-ops.mjs"]
+    command: []
+    environment:
+      OPS_SCOPE: ${APP_NAME}
+      OPS_PORT: 8081
+      RESTART_API_TOKEN: \${RESTART_API_TOKEN}
+    expose:
+      - "8081"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+EOF
+
+	if [ "$AUTO_UPDATE" = "true" ]; then
+		cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "${APP_NAME}"
+EOF
+	fi
+
+	cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - ops-network
+    depends_on:
       - zerotier
 EOF
 
@@ -609,6 +716,9 @@ networks:
       driver: default
       config:
         - subnet: ${APP_SUBNET}
+  ops-network:
+    driver: bridge
+    internal: true
 EOF
 }
 
@@ -616,12 +726,14 @@ main() {
 	require_root
 	check_host
 	load_existing_environment
+	RESTART_HELPER_SOURCE_IMAGE="$RESTART_HELPER_IMAGE"
 	validate_auto_update
 	install_docker_if_needed
 	configure_mirror
 	configure_ztnet_mirror_images
 
 	select_image "ZTNET_IMAGE" "$ZTNET_IMAGE" "$ZTNET_MIRROR_IMAGES" "ZTNET_MIRROR_IMAGES" "true"
+	select_image "RESTART_HELPER_IMAGE" "$RESTART_HELPER_IMAGE" "$RESTART_HELPER_MIRROR_IMAGES" "RESTART_HELPER_MIRROR_IMAGES" "true" "image_has_restart_helper"
 	select_image "ZEROTIER_IMAGE" "$ZEROTIER_IMAGE" "$ZEROTIER_MIRROR_IMAGE" "ZEROTIER_MIRROR_IMAGE"
 	select_image "POSTGRES_IMAGE" "$POSTGRES_IMAGE" "$POSTGRES_MIRROR_IMAGE" "POSTGRES_MIRROR_IMAGE"
 	if [ "$AUTO_UPDATE" = "true" ]; then
@@ -639,6 +751,7 @@ main() {
 	write_compose_file
 
 	info "Using ZTNET image: ${ZTNET_IMAGE}"
+	info "Using restart helper image: ${RESTART_HELPER_IMAGE}"
 	info "Using ZeroTier image: ${ZEROTIER_IMAGE}"
 	info "Using PostgreSQL image: ${POSTGRES_IMAGE}"
 	if [ "$AUTO_UPDATE" = "true" ]; then

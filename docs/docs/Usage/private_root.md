@@ -33,7 +33,7 @@ A private root server in ZeroTier acts as a central coordination point for a Zer
 To check the current root servers associated with your ZTNET network:
 
 - Access the server where ZTNet is running using a terminal.
-- Execute the command `zerotier-cli listpeers | grep PLANET` to list all peers and root servers. If you are using Docker, you can use the command `docker exec zerotier zerotier-cli listpeers | grep PLANET`.
+- Execute the command `zerotier-cli listpeers | grep PLANET` to list all peers and root servers. If you are using Docker Compose, run `docker compose exec zerotier zerotier-cli listpeers | grep PLANET` from the deployment directory.
 - Note the entries with the role 'PLANET', which are the [zerotier public root servers](https://zerotier.atlassian.net/wiki/spaces/SD/pages/7241732/Root+Server+IP+Addresses).
 
 Example output indicating public root servers:
@@ -54,12 +54,12 @@ Example output indicating public root servers:
     -  If you're deploying these for use at a physical location, use internal IPs.
 4. Optionally add an identity comment for administrative purposes.
 5. Click on the `CREATE PLANET` button to initialize the creation of your private root server.
-6. After creation, restart zerotier to apply the changes:
-   - For Docker users: `docker restart zerotier`.
-   - For standalone users: `sudo systemctl restart zerotier-one`.
+6. After creation, select **Restart ZeroTier now** in the completion dialog to load the new Planet and port configuration.
+   - Existing Docker deployments without the restart helper can run `docker compose restart zerotier` from the deployment directory.
+   - Standalone users can run `sudo systemctl restart zerotier-one`.
 
 ### Verifying Private Root Server Creation
-Now, if you type `docker exec zerotier zerotier-cli listpeers | grep PLANET` again, all the public root servers should be gone.
+Now, if you type `docker compose exec zerotier zerotier-cli listpeers | grep PLANET` again, all the public root servers should be gone.
 
 ### Downloading Configuration Files
 
@@ -210,4 +210,3 @@ This process ensures your ZeroTier network operates with two private root server
 - Proceed with caution when updating the planet file as it will modify the core structure of your ZeroTier network.
 - Ensure the endpoints specified in the `mkworld.config.json` are globally reachable unless you are using the private root server for a local network.
 - After setting up a private root server, verify its functionality by checking for the presence of private peers and the absence of public root servers.
-
