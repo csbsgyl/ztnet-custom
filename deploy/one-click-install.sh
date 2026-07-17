@@ -32,6 +32,7 @@ APP_SUBNET="${APP_SUBNET:-172.31.255.0/29}"
 DEFAULT_ZTNET_IMAGE="ghcr.io/csbsgyl/ztnet-custom:latest"
 DEFAULT_ZTNET_MIRROR_IMAGES=""
 LEGACY_RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom:ops-latest"
+LEGACY_RESTART_HELPER_DIGEST="b36809cd64857f8bd95dc6865960b772cf2d2bf1258296c05ebbd0d4e843cb84"
 DEFAULT_RESTART_HELPER_DIGEST="207fe36e7d8ebec6335f83601dac18aa1d2d89cd5b662b63c4277675091533bd"
 DEFAULT_RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom@sha256:${DEFAULT_RESTART_HELPER_DIGEST}"
 DEFAULT_RESTART_HELPER_SOURCE_SHA256="1038d5e16856ad5bed50d987f01cb57b666b61c85d531e01a5da17bd4ad28fa0"
@@ -210,11 +211,21 @@ restore_existing_value() {
 
 migrate_legacy_restart_helper_image() {
 	local legacy_registry
-	local legacy_suffix="/${LEGACY_RESTART_HELPER_IMAGE#*/}"
+	local legacy_suffix
+	local migration_source
+	local mutable_suffix="/${LEGACY_RESTART_HELPER_IMAGE#*/}"
+	local digest_suffix="/csbsgyl/ztnet-custom@sha256:${LEGACY_RESTART_HELPER_DIGEST}"
 
 	[ "$RESTART_HELPER_IMAGE_PROVIDED" != "x" ] || return
 	case "$RESTART_HELPER_IMAGE" in
-		*"$legacy_suffix") ;;
+		*"$mutable_suffix")
+			legacy_suffix="$mutable_suffix"
+			migration_source="mutable ops-latest"
+			;;
+		*"$digest_suffix")
+			legacy_suffix="$digest_suffix"
+			migration_source="the previous official digest"
+			;;
 		*) return ;;
 	esac
 
@@ -223,7 +234,7 @@ migrate_legacy_restart_helper_image() {
 		"" | */*) return ;;
 	esac
 
-	warn "Migrating the restart helper from mutable ops-latest to the verified digest on ${legacy_registry}."
+	warn "Migrating the restart helper from ${migration_source} to the current verified digest on ${legacy_registry}."
 	RESTART_HELPER_IMAGE="${legacy_registry}/csbsgyl/ztnet-custom@sha256:${DEFAULT_RESTART_HELPER_DIGEST}"
 	RESTART_HELPER_SOURCE_SHA256="$DEFAULT_RESTART_HELPER_SOURCE_SHA256"
 }

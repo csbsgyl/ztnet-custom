@@ -328,6 +328,20 @@ assert_eq \
 	"migrates a known legacy helper mirror to the same registry digest"
 assert_eq "$DEFAULT_RESTART_HELPER_SOURCE_SHA256" "$RESTART_HELPER_SOURCE_SHA256" "keeps source verification enabled for a migrated helper mirror"
 
+INSTALL_DIR="${TEST_TMP}/legacy-helper-digest"
+mkdir -p "$INSTALL_DIR"
+cat > "${INSTALL_DIR}/.env" <<EOF
+RESTART_HELPER_IMAGE=ghcr.io/csbsgyl/ztnet-custom@sha256:${LEGACY_RESTART_HELPER_DIGEST}
+RESTART_HELPER_SOURCE_SHA256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+EOF
+RESTART_HELPER_IMAGE_PROVIDED=""
+RESTART_HELPER_SOURCE_SHA256_PROVIDED=""
+RESTART_HELPER_IMAGE="$DEFAULT_RESTART_HELPER_IMAGE"
+RESTART_HELPER_SOURCE_SHA256="$DEFAULT_RESTART_HELPER_SOURCE_SHA256"
+load_existing_environment
+assert_eq "$DEFAULT_RESTART_HELPER_IMAGE" "$RESTART_HELPER_IMAGE" "migrates the previous official helper digest"
+assert_eq "$DEFAULT_RESTART_HELPER_SOURCE_SHA256" "$RESTART_HELPER_SOURCE_SHA256" "restores source verification during a helper digest migration"
+
 INSTALL_DIR="${TEST_TMP}/unrelated-legacy-helper"
 mkdir -p "$INSTALL_DIR"
 cat > "${INSTALL_DIR}/.env" <<'EOF'

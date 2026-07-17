@@ -24,7 +24,7 @@ trap 'rm -f "$installer"' EXIT
 commit="$(git ls-remote "https://github.com/${repo}.git" refs/heads/main | awk 'NR == 1 { print $1 }')"
 printf '%s\n' "$commit" | grep -Eq '^[0-9a-f]{40}$'
 curl -fsSL "https://raw.githubusercontent.com/${repo}/${commit}/deploy/one-click-install.sh" -o "$installer"
-printf '%s  %s\n' 'f3f732e0f328f8a82cc3fc6358fecd22ec36b86066f228094000e5294f9498c7' "$installer" | sha256sum -c -
+printf '%s  %s\n' '5c00f83365925abdc8646f7742fd4eb03a8fa54990da0010d443cfb6b56a5eb2' "$installer" | sha256sum -c -
 sudo bash "$installer"
 ```
 
@@ -41,7 +41,7 @@ curl --retry 2 --retry-all-errors -fsSL \
   -H 'Accept: application/vnd.github.raw+json' \
   "https://api.github.com/repos/${repo}/contents/deploy/one-click-install.sh?ref=${commit}" \
   -o "$installer"
-printf '%s  %s\n' 'f3f732e0f328f8a82cc3fc6358fecd22ec36b86066f228094000e5294f9498c7' "$installer" | sha256sum -c -
+printf '%s  %s\n' '5c00f83365925abdc8646f7742fd4eb03a8fa54990da0010d443cfb6b56a5eb2' "$installer" | sha256sum -c -
 sudo bash "$installer"
 ```
 
@@ -223,7 +223,7 @@ Supported environment variables:
 | `UPDATE_API_TOKEN` | random | Private token shared by ZTNET and Watchtower; generated once and preserved. |
 | `RESTART_API_URL` | `http://restart-helper:8081` | Internal-only URL for the fixed ZeroTier restart operation. |
 | `RESTART_API_TOKEN` | random | Separate Bearer token shared by ZTNET and the restart helper; at least 32 characters, different from `UPDATE_API_TOKEN`, generated once and preserved. |
-| `RESTART_HELPER_IMAGE` | official `@sha256:b368...cb84` | Immutable minimal restart-helper image. Tag-only references are rejected. |
+| `RESTART_HELPER_IMAGE` | official `@sha256:207f...33bd` | Immutable minimal restart-helper image. Tag-only references are rejected. |
 | `RESTART_HELPER_SOURCE_SHA256` | `1038d5e1...28fa0` | Expected SHA-256 of `/app/container-ops.mjs`, verified before deployment. |
 | `RESTART_HELPER_MIRROR_IMAGES` | empty | Explicit digest-pinned helper mirrors; each must pass the same source verification. |
 | `BACKUP_DIR` | `/app/backups` | Persistent in-container path for server-side backup archives. |
