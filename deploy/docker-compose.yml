@@ -76,7 +76,7 @@ services:
       - zerotier
 
   restart-helper:
-    image: ${RESTART_HELPER_IMAGE:-ghcr.io/csbsgyl/ztnet-custom@sha256:b36809cd64857f8bd95dc6865960b772cf2d2bf1258296c05ebbd0d4e843cb84}
+    image: ${RESTART_HELPER_IMAGE:-ghcr.io/csbsgyl/ztnet-custom@sha256:207fe36e7d8ebec6335f83601dac18aa1d2d89cd5b662b63c4277675091533bd}
     container_name: ${APP_NAME:-ztnet-custom}-restart-helper
     restart: unless-stopped
     entrypoint: ["node", "/app/container-ops.mjs"]

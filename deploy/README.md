@@ -24,7 +24,7 @@ trap 'rm -f "$installer"' EXIT
 commit="$(git ls-remote "https://github.com/${repo}.git" refs/heads/main | awk 'NR == 1 { print $1 }')"
 printf '%s\n' "$commit" | grep -Eq '^[0-9a-f]{40}$'
 curl -fsSL "https://raw.githubusercontent.com/${repo}/${commit}/deploy/one-click-install.sh" -o "$installer"
-printf '%s  %s\n' '7c87f769005b401259891a7050a3e52bfa2dbdb9eb0dcec020a934f94e434b08' "$installer" | sha256sum -c -
+printf '%s  %s\n' 'f3f732e0f328f8a82cc3fc6358fecd22ec36b86066f228094000e5294f9498c7' "$installer" | sha256sum -c -
 sudo bash "$installer"
 ```
 
@@ -41,7 +41,7 @@ curl --retry 2 --retry-all-errors -fsSL \
   -H 'Accept: application/vnd.github.raw+json' \
   "https://api.github.com/repos/${repo}/contents/deploy/one-click-install.sh?ref=${commit}" \
   -o "$installer"
-printf '%s  %s\n' '7c87f769005b401259891a7050a3e52bfa2dbdb9eb0dcec020a934f94e434b08' "$installer" | sha256sum -c -
+printf '%s  %s\n' 'f3f732e0f328f8a82cc3fc6358fecd22ec36b86066f228094000e5294f9498c7' "$installer" | sha256sum -c -
 sudo bash "$installer"
 ```
 

@@ -38,6 +38,16 @@ assert_file_not_contains() {
 	fi
 }
 
+file_mode() {
+	local file="$1"
+
+	if stat -c '%a' "$file" >/dev/null 2>&1; then
+		stat -c '%a' "$file"
+	else
+		stat -f '%Lp' "$file"
+	fi
+}
+
 TEST_TMP="$(mktemp -d)"
 cleanup_test() {
 	local status=$?
@@ -218,7 +228,7 @@ assert_file_contains "${INSTALL_DIR}/.env" "ZTNET_IMAGE=registry.example.com/own
 assert_file_contains "${INSTALL_DIR}/.env" "RESTART_HELPER_IMAGE=registry.example.com/ztnet-restart-helper@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "preserves the restart helper image in the environment"
 assert_file_contains "${INSTALL_DIR}/.env" "RESTART_HELPER_SOURCE_SHA256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" "persists the restart helper source digest"
 
-if [ "$(stat -f '%Lp' "${INSTALL_DIR}/.env" 2>/dev/null || stat -c '%a' "${INSTALL_DIR}/.env")" != "600" ]; then
+if [ "$(file_mode "${INSTALL_DIR}/.env")" != "600" ]; then
 	printf 'FAIL: generated .env is not mode 600\n' >&2
 	exit 1
 fi
@@ -673,7 +683,7 @@ assert_eq \
 	"$(grep -Fc '/var/run/docker.sock:/var/run/docker.sock' "${INSTALL_DIR}/docker-compose.yml")" \
 	"mounts the Docker socket only in the updater and restart helper"
 
-if [ "$(stat -f '%Lp' "${INSTALL_DIR}/docker-compose.yml" 2>/dev/null || stat -c '%a' "${INSTALL_DIR}/docker-compose.yml")" != "600" ]; then
+if [ "$(file_mode "${INSTALL_DIR}/docker-compose.yml")" != "600" ]; then
 	printf 'FAIL: generated docker-compose.yml is not mode 600\n' >&2
 	exit 1
 fi
@@ -693,6 +703,8 @@ assert_eq \
 assert_file_contains "${TEST_DIR}/../docker-compose.yml" "    profiles:" "gates the static updater behind a Compose profile"
 assert_file_contains "${TEST_DIR}/../docker-compose.yml" "      - auto-update" "names the static updater profile"
 assert_file_contains "${TEST_DIR}/../.env.example" "COMPOSE_PROFILES=auto-update" "enables the static updater profile by default"
+assert_file_contains "${TEST_DIR}/../docker-compose.yml" 'image: ${RESTART_HELPER_IMAGE:-'"${DEFAULT_RESTART_HELPER_IMAGE}"'}' "pins the static restart helper to the reviewed image"
+assert_file_contains "${TEST_DIR}/../.env.example" "RESTART_HELPER_IMAGE=${DEFAULT_RESTART_HELPER_IMAGE}" "keeps the example restart helper digest synchronized"
 assert_file_contains "${TEST_DIR}/../docker-compose.yml" 'image: ${UPDATER_IMAGE:-nickfedor/watchtower@sha256:c1dfdf27fe805dcfefe1cf048cee6960a511c097a99aa355b0bc4be6e6bb3bdf}' "pins the static updater default"
 assert_file_contains "${TEST_DIR}/../../Dockerfile.ops" "FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd" "pins the restart helper base image"
 assert_file_contains "${TEST_DIR}/../../Dockerfile" "ARG NODEJS_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d" "pins the application base image"
