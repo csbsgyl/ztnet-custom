@@ -56,6 +56,7 @@ DOCKER_MIRROR_MODE="${DOCKER_MIRROR_MODE:-never}"
 DOCKER_MIRROR_URL="${DOCKER_MIRROR_URL:-https://docker.xiaohangyun.org}"
 DOCKER_PULL_TIMEOUT="${DOCKER_PULL_TIMEOUT:-0}"
 REGISTRY_PROBE_TIMEOUT="${REGISTRY_PROBE_TIMEOUT:-8}"
+STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-180}"
 ZTNET_MIRROR_IMAGE="${ZTNET_MIRROR_IMAGE:-}"
 ZTNET_MIRROR_IMAGES="${ZTNET_MIRROR_IMAGES:-}"
 RESTART_HELPER_MIRROR_IMAGES="${RESTART_HELPER_MIRROR_IMAGES:-}"
@@ -183,6 +184,9 @@ validate_updater_config() {
 
 validate_runtime_security() {
 	normalize_boolean "RATE_LIMIT_TRUST_PROXY" "$RATE_LIMIT_TRUST_PROXY"
+	if [[ ! "$STARTUP_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$STARTUP_TIMEOUT" -lt 1 ]; then
+		fail "STARTUP_TIMEOUT must be a positive integer."
+	fi
 }
 
 read_existing_env_value() {
@@ -685,6 +689,34 @@ compose_up() {
 	fi
 }
 
+wait_for_application() {
+	local deadline=$((SECONDS + STARTUP_TIMEOUT))
+	local state
+
+	info "Waiting up to ${STARTUP_TIMEOUT} seconds for ZTNET to become ready..."
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		state="$(docker inspect --format '{{.State.Status}}' "$APP_NAME" 2>/dev/null || true)"
+		case "$state" in
+			exited | dead)
+				docker logs --tail 100 "$APP_NAME" >&2 || true
+				fail "ZTNET stopped before it became ready."
+				;;
+		esac
+
+		if [ "$state" = "running" ] &&
+			docker exec "$APP_NAME" curl --noproxy '*' -fsS \
+				--connect-timeout 2 --max-time 5 -o /dev/null \
+				http://127.0.0.1:3000/ >/dev/null 2>&1; then
+			info "ZTNET application is ready."
+			return
+		fi
+		sleep 2
+	done
+
+	docker logs --tail 100 "$APP_NAME" >&2 || true
+	fail "ZTNET did not become ready within ${STARTUP_TIMEOUT} seconds. Inspect: docker logs ${APP_NAME}"
+}
+
 write_env_file() {
 	if [ -z "$POSTGRES_PASSWORD" ]; then
 		POSTGRES_PASSWORD="$(random_secret)"
@@ -786,6 +818,7 @@ services:
     ports:
       - "${PUBLIC_BIND}:${HTTP_PORT}:3000"
     environment:
+      HOSTNAME: "0.0.0.0"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: \${POSTGRES_PORT}
       POSTGRES_USER: \${POSTGRES_USER}
@@ -934,6 +967,7 @@ main() {
 
 	cd "$INSTALL_DIR"
 	compose_up
+	wait_for_application
 
 	info "ZTNET deployment started."
 	info "Open: ${NEXTAUTH_URL}"

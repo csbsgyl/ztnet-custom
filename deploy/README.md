@@ -24,7 +24,7 @@ trap 'rm -f "$installer"' EXIT
 commit="$(git ls-remote "https://github.com/${repo}.git" refs/heads/main | awk 'NR == 1 { print $1 }')"
 printf '%s\n' "$commit" | grep -Eq '^[0-9a-f]{40}$'
 curl -fsSL "https://raw.githubusercontent.com/${repo}/${commit}/deploy/one-click-install.sh" -o "$installer"
-printf '%s  %s\n' '5c00f83365925abdc8646f7742fd4eb03a8fa54990da0010d443cfb6b56a5eb2' "$installer" | sha256sum -c -
+printf '%s  %s\n' '1369ff03a14ec446ae6bc3487f31fb0d1229287537dcf9afa0f7e33a5bcc079e' "$installer" | sha256sum -c -
 sudo bash "$installer"
 ```
 
@@ -41,7 +41,7 @@ curl --retry 2 --retry-all-errors -fsSL \
   -H 'Accept: application/vnd.github.raw+json' \
   "https://api.github.com/repos/${repo}/contents/deploy/one-click-install.sh?ref=${commit}" \
   -o "$installer"
-printf '%s  %s\n' '5c00f83365925abdc8646f7742fd4eb03a8fa54990da0010d443cfb6b56a5eb2' "$installer" | sha256sum -c -
+printf '%s  %s\n' '1369ff03a14ec446ae6bc3487f31fb0d1229287537dcf9afa0f7e33a5bcc079e' "$installer" | sha256sum -c -
 sudo bash "$installer"
 ```
 
@@ -211,6 +211,7 @@ Supported environment variables:
 | `DOCKER_MIRROR_URL` | `https://docker.xiaohangyun.org` | Inactive unless mirror mode is explicitly enabled; applies only to eligible Docker Hub images. |
 | `DOCKER_PULL_TIMEOUT` | `0` | Maximum seconds for each `docker pull`; `0` allows slow image downloads to finish. |
 | `REGISTRY_PROBE_TIMEOUT` | `8` | Maximum seconds for each registry health probe. |
+| `STARTUP_TIMEOUT` | `180` | Maximum seconds the installer waits for the application HTTP server to become ready. |
 | `ZTNET_MIRROR_IMAGES` | empty | Explicit comma-separated ZTNET mirror candidates. |
 | `ZTNET_MIRROR_IMAGE` | empty | Legacy single candidate prepended to `ZTNET_MIRROR_IMAGES`. |
 | `ZEROTIER_MIRROR_IMAGE` | empty | Explicit ZeroTier mirror image. |

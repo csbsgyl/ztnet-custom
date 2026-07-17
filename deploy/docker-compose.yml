@@ -47,6 +47,7 @@ services:
     ports:
       - "${PUBLIC_BIND:-127.0.0.1}:${HTTP_PORT:-3000}:3000"
     environment:
+      HOSTNAME: "0.0.0.0"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}

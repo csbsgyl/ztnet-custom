@@ -281,6 +281,11 @@ if (RATE_LIMIT_TRUST_PROXY=invalid; validate_runtime_security) >/dev/null 2>&1; 
 	exit 1
 fi
 
+if (STARTUP_TIMEOUT=0; validate_runtime_security) >/dev/null 2>&1; then
+	printf 'FAIL: accepted a non-positive STARTUP_TIMEOUT value\n' >&2
+	exit 1
+fi
+
 INSTALL_DIR="${TEST_TMP}/legacy-bind"
 mkdir -p "$INSTALL_DIR"
 cat > "${INSTALL_DIR}/.env" <<'EOF'
@@ -425,6 +430,40 @@ assert_eq \
 	"registry-user.example.com/ztnet-custom:latest,registry-a.example.com/ztnet-custom:latest,registry-b.example.com/ztnet-custom:latest" \
 	"$ZTNET_MIRROR_IMAGES" \
 	"prepends the legacy single mirror override"
+
+if (
+	docker() {
+		case "$1" in
+			inspect) printf '%s\n' "dead" ;;
+			logs) return 0 ;;
+			*) return 1 ;;
+		esac
+	}
+	STARTUP_TIMEOUT=1
+	wait_for_application
+) >/dev/null 2>&1; then
+	printf 'FAIL: accepted an application container that stopped before readiness\n' >&2
+	exit 1
+fi
+
+READY_EXEC_ARGS=""
+docker() {
+	case "$1" in
+		inspect) printf '%s\n' "running" ;;
+		exec) READY_EXEC_ARGS="$*" ;;
+		*) return 1 ;;
+	esac
+}
+STARTUP_TIMEOUT=1
+wait_for_application >/dev/null
+case "$READY_EXEC_ARGS" in
+	*" http://127.0.0.1:3000/") ;;
+	*)
+		printf 'FAIL: application readiness check did not use the container loopback address\n' >&2
+		exit 1
+		;;
+esac
+STARTUP_TIMEOUT=180
 
 docker() {
 	return 1
@@ -663,6 +702,7 @@ assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "com.centurylinklabs.wa
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "/var/run/docker.sock:/var/run/docker.sock" "mounts the Docker socket"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - app-network" "connects the updater to the private application network"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "      - \"127.0.0.1:3000:3000\"" "binds the web application to loopback"
+assert_file_contains "${INSTALL_DIR}/docker-compose.yml" 'HOSTNAME: "0.0.0.0"' "binds Next.js to every application container network"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "INITIAL_ADMIN_EMAIL: \${INITIAL_ADMIN_EMAIL}" "passes the optional first-admin identity restriction"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "RATE_LIMIT_TRUST_PROXY: \${RATE_LIMIT_TRUST_PROXY}" "passes the trusted-proxy rate-limit setting"
 assert_file_contains "${INSTALL_DIR}/docker-compose.yml" "  restart-helper:" "adds the scoped restart helper"
@@ -717,11 +757,13 @@ assert_eq \
 assert_file_contains "${TEST_DIR}/../docker-compose.yml" "    profiles:" "gates the static updater behind a Compose profile"
 assert_file_contains "${TEST_DIR}/../docker-compose.yml" "      - auto-update" "names the static updater profile"
 assert_file_contains "${TEST_DIR}/../.env.example" "COMPOSE_PROFILES=auto-update" "enables the static updater profile by default"
+assert_file_contains "${TEST_DIR}/../docker-compose.yml" 'HOSTNAME: "0.0.0.0"' "binds the static Next.js service to every container network"
 assert_file_contains "${TEST_DIR}/../docker-compose.yml" 'image: ${RESTART_HELPER_IMAGE:-'"${DEFAULT_RESTART_HELPER_IMAGE}"'}' "pins the static restart helper to the reviewed image"
 assert_file_contains "${TEST_DIR}/../.env.example" "RESTART_HELPER_IMAGE=${DEFAULT_RESTART_HELPER_IMAGE}" "keeps the example restart helper digest synchronized"
 assert_file_contains "${TEST_DIR}/../docker-compose.yml" 'image: ${UPDATER_IMAGE:-nickfedor/watchtower@sha256:c1dfdf27fe805dcfefe1cf048cee6960a511c097a99aa355b0bc4be6e6bb3bdf}' "pins the static updater default"
 assert_file_contains "${TEST_DIR}/../../Dockerfile.ops" "FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd" "pins the restart helper base image"
 assert_file_contains "${TEST_DIR}/../../Dockerfile" "ARG NODEJS_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d" "pins the application base image"
+assert_file_contains "${TEST_DIR}/../../Dockerfile" "ENV HOSTNAME=0.0.0.0" "binds the standalone application image to every container interface"
 assert_file_not_contains "${TEST_DIR}/../../Dockerfile" "npm@latest" "does not install a mutable npm release"
 assert_file_contains "${TEST_DIR}/../../Dockerfile" "@paralleldrive/cuid2@2.2.2" "pins the runtime cuid2 package"
 assert_file_contains "${TEST_DIR}/../../Dockerfile" "ts-node@10.9.1" "pins the runtime ts-node package"
