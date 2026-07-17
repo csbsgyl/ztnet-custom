@@ -7,6 +7,7 @@ import { throwError } from "~/server/helpers/errorHandler";
 import type { ZTControllerNodeStatus } from "~/types/ztController";
 import type { NetworkAndMemberResponse } from "~/types/network";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import type { WorldConfig } from "~/types/worldConfig";
 import axios from "axios";
@@ -1439,6 +1440,9 @@ export const adminRouter = createTRPCRouter({
 				) {
 					throw new Error("ztmkworld did not create a Planet file.");
 				}
+				const downloadSha256 = createHash("sha256")
+					.update(fs.readFileSync(/* turbopackIgnore: true */ generatedPlanet))
+					.digest("hex");
 				await activatePreparedPlanet({
 					ztFolder: ZT_FOLDER,
 					stagedWorldDirectory: stagingDirectory,
@@ -1453,6 +1457,8 @@ export const adminRouter = createTRPCRouter({
 									plBirth: input.plBirth || 0,
 									plID: input.plID || 0,
 									plRecommend: input.plRecommend,
+									origin: "LOCAL_GENERATED",
+									downloadSha256,
 									rootNodes: { deleteMany: {}, create: config.rootNodes },
 								},
 								create: {
@@ -1461,6 +1467,8 @@ export const adminRouter = createTRPCRouter({
 									plBirth: input.plBirth || 0,
 									plID: input.plID || 0,
 									plRecommend: input.plRecommend,
+									origin: "LOCAL_GENERATED",
+									downloadSha256,
 									rootNodes: { create: config.rootNodes },
 								},
 							});

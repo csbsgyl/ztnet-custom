@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fromNodeHeaders } from "better-auth/node";
@@ -35,7 +36,15 @@ export default async function planetDownload(req: NextApiRequest, res: NextApiRe
 		}),
 		prisma.globalOptions.findUnique({
 			where: { id: 1 },
-			select: { planetId: true },
+			select: {
+				customPlanetUsed: true,
+				planet: {
+					select: {
+						origin: true,
+						downloadSha256: true,
+					},
+				},
+			},
 		}),
 	]);
 
@@ -45,7 +54,11 @@ export default async function planetDownload(req: NextApiRequest, res: NextApiRe
 	if (!canAccessProtectedResources(account)) {
 		return res.status(403).send("Account is inactive or expired");
 	}
-	if (options?.planetId == null) {
+	if (
+		!options?.customPlanetUsed ||
+		options.planet?.origin !== "LOCAL_GENERATED" ||
+		!options.planet.downloadSha256
+	) {
 		return res.status(404).send("Planet file is not available");
 	}
 
@@ -55,6 +68,10 @@ export default async function planetDownload(req: NextApiRequest, res: NextApiRe
 			path.join(/* turbopackIgnore: true */ ZT_FOLDER, "planet"),
 		);
 		if (planet.length === 0) {
+			return res.status(404).send("Planet file is not available");
+		}
+		const actualSha256 = createHash("sha256").update(planet).digest("hex");
+		if (actualSha256 !== options.planet.downloadSha256) {
 			return res.status(404).send("Planet file is not available");
 		}
 

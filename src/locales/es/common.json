@@ -150,7 +150,7 @@
 		"fileName": "Nombre del archivo",
 		"fileType": "Tipo de archivo",
 		"binaryFile": "Archivo binario",
-		"unavailableDescription": "El administrador no ha habilitado un Planet personalizado.",
+		"unavailableDescription": "No hay disponible ningún archivo Planet generado por este servidor.",
 		"downloadButton": "Descargar planet",
 		"downloading": "Descargando",
 		"downloadSuccess": "La descarga de Planet ha comenzado",

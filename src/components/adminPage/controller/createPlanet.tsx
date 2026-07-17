@@ -1,10 +1,9 @@
 import type React from "react";
 import RootForm from "./rootForm";
 import { useTranslations } from "next-intl";
-import type { Planet } from "@prisma/client";
 
 interface IProps {
-	getPlanet: Planet & { error?: Error };
+	getPlanet?: { error?: Error };
 	open: boolean;
 	setOpen: (open: boolean) => void;
 	resetWorld: () => void;

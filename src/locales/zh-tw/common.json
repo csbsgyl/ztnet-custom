@@ -150,7 +150,7 @@
 		"fileName": "檔案名稱",
 		"fileType": "檔案類型",
 		"binaryFile": "原始二進位檔案",
-		"unavailableDescription": "管理員尚未啟用自訂 Planet。",
+		"unavailableDescription": "目前沒有由此伺服器產生的 Planet 檔案。",
 		"downloadButton": "下載 planet",
 		"downloading": "正在下載",
 		"downloadSuccess": "planet 檔案已開始下載",

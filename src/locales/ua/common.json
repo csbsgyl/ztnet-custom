@@ -150,7 +150,7 @@
 		"fileName": "Ім’я файлу",
 		"fileType": "Тип файлу",
 		"binaryFile": "Бінарний файл",
-		"unavailableDescription": "Адміністратор не ввімкнув користувацький Planet.",
+		"unavailableDescription": "Файл Planet, створений цим сервером, недоступний.",
 		"downloadButton": "Завантажити planet",
 		"downloading": "Завантаження",
 		"downloadSuccess": "Завантаження Planet розпочато",

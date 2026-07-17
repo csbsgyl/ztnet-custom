@@ -46,6 +46,12 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
+enum PlanetOrigin {
+  UNKNOWN
+  LOCAL_GENERATED
+  IMPORTED
+}
+
 model GlobalOptions {
   id                    Int     @id @default(autoincrement())
   // Site
@@ -100,12 +106,14 @@ model GlobalOptions {
 
 // ROOT SERVERS
 model Planet {
-  id            Int            @id @default(autoincrement())
-  plID          BigInt         @default(0)
-  plBirth       BigInt         @default(0)
-  plRecommend   Boolean        @default(false)
-  rootNodes     RootNodes[]
-  globalOptions GlobalOptions?
+  id             Int            @id @default(autoincrement())
+  plID           BigInt         @default(0)
+  plBirth        BigInt         @default(0)
+  plRecommend    Boolean        @default(false)
+  origin         PlanetOrigin   @default(UNKNOWN)
+  downloadSha256 String?
+  rootNodes      RootNodes[]
+  globalOptions  GlobalOptions?
 }
 
 model RootNodes {

@@ -150,7 +150,7 @@
 		"fileName": "文件名",
 		"fileType": "文件类型",
 		"binaryFile": "原始二进制文件",
-		"unavailableDescription": "管理员尚未启用自定义 Planet。",
+		"unavailableDescription": "当前没有由本服务器生成的 Planet 文件。",
 		"downloadButton": "下载 planet",
 		"downloading": "正在下载",
 		"downloadSuccess": "planet 文件已开始下载",

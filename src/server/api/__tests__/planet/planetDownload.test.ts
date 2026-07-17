@@ -17,6 +17,7 @@ jest.mock("~/utils/ztPaths", () => ({
 	ZT_FOLDER: "/var/lib/zerotier-one",
 }));
 
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { auth } from "~/lib/auth";
@@ -29,6 +30,20 @@ const mockPrisma = prisma as unknown as {
 };
 const getSession = auth.api.getSession as unknown as jest.Mock;
 const readFile = fs.readFile as jest.Mock;
+const defaultPlanet = Buffer.from([0x7f, 0x50, 0x4c, 0x41, 0x4e, 0x45, 0x54]);
+
+const sha256 = (value: Buffer) => createHash("sha256").update(value).digest("hex");
+
+function setDownloadablePlanet(planet = defaultPlanet) {
+	mockPrisma.globalOptions.findUnique.mockResolvedValue({
+		customPlanetUsed: true,
+		planet: {
+			origin: "LOCAL_GENERATED",
+			downloadSha256: sha256(planet),
+		},
+	});
+	readFile.mockResolvedValue(planet);
+}
 
 const activeAccount = {
 	id: "user-1",
@@ -59,11 +74,7 @@ describe("Planet download API", () => {
 	beforeEach(() => {
 		getSession.mockResolvedValue({ user: { id: "user-1" } });
 		mockPrisma.user.findUnique.mockResolvedValue(activeAccount);
-		mockPrisma.globalOptions.findUnique.mockResolvedValue({
-			planetId: 1,
-			customPlanetUsed: false,
-		});
-		readFile.mockResolvedValue(Buffer.from([0x7f, 0x50, 0x4c, 0x41, 0x4e, 0x45, 0x54]));
+		setDownloadablePlanet();
 	});
 
 	it("rejects methods other than GET", async () => {
@@ -99,8 +110,8 @@ describe("Planet download API", () => {
 
 	it("returns 404 while no custom Planet configuration is linked", async () => {
 		mockPrisma.globalOptions.findUnique.mockResolvedValue({
-			planetId: null,
 			customPlanetUsed: true,
+			planet: null,
 		});
 		const { response, mocks } = createResponse();
 
@@ -109,6 +120,26 @@ describe("Planet download API", () => {
 		expect(mocks.status).toHaveBeenCalledWith(404);
 		expect(readFile).not.toHaveBeenCalled();
 	});
+
+	it.each([
+		["IMPORTED", sha256(defaultPlanet)],
+		["UNKNOWN", sha256(defaultPlanet)],
+		["LOCAL_GENERATED", null],
+	])(
+		"returns 404 for origin %s with download hash %s",
+		async (origin, downloadSha256) => {
+			mockPrisma.globalOptions.findUnique.mockResolvedValue({
+				customPlanetUsed: true,
+				planet: { origin, downloadSha256 },
+			});
+			const { response, mocks } = createResponse();
+
+			await planetDownload(createRequest(), response);
+
+			expect(mocks.status).toHaveBeenCalledWith(404);
+			expect(readFile).not.toHaveBeenCalled();
+		},
+	);
 
 	it("returns 404 when the active file does not exist", async () => {
 		readFile.mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }));
@@ -119,9 +150,19 @@ describe("Planet download API", () => {
 		expect(mocks.status).toHaveBeenCalledWith(404);
 	});
 
+	it("returns 404 when the active file no longer matches the generated file", async () => {
+		readFile.mockResolvedValue(Buffer.from("replaced-planet"));
+		const { response, mocks } = createResponse();
+
+		await planetDownload(createRequest(), response);
+
+		expect(mocks.status).toHaveBeenCalledWith(404);
+		expect(mocks.send).toHaveBeenCalledWith("Planet file is not available");
+	});
+
 	it("returns the active binary file with the exact planet filename", async () => {
 		const planet = Buffer.from([0x01, 0x00, 0xff, 0x7a]);
-		readFile.mockResolvedValue(planet);
+		setDownloadablePlanet(planet);
 		const { response, mocks } = createResponse();
 
 		await planetDownload(createRequest(), response);

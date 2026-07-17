@@ -163,6 +163,8 @@ async function importWorld(req: NextApiRequest, res: NextApiResponse): Promise<v
 							plBirth: imported.config.plBirth,
 							plID: imported.config.plID,
 							plRecommend: imported.config.plRecommend,
+							origin: "IMPORTED",
+							downloadSha256: null,
 							rootNodes: {
 								deleteMany: {},
 								create: imported.config.rootNodes,
@@ -174,6 +176,8 @@ async function importWorld(req: NextApiRequest, res: NextApiResponse): Promise<v
 							plBirth: imported.config.plBirth,
 							plID: imported.config.plID,
 							plRecommend: imported.config.plRecommend,
+							origin: "IMPORTED",
+							downloadSha256: null,
 							rootNodes: { create: imported.config.rootNodes },
 						},
 					});

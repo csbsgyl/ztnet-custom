@@ -9,6 +9,7 @@ type SettingsOptionsResponse = Omit<
 	hasSmtpPassword: boolean;
 	hasAlipayPublicKey: boolean;
 	hasAlipayPrivateKey: boolean;
+	planetDownloadAvailable: boolean;
 };
 
 export const settingsRouter = createTRPCRouter({
@@ -19,6 +20,14 @@ export const settingsRouter = createTRPCRouter({
 				where: {
 					id: 1,
 				},
+				include: {
+					planet: {
+						select: {
+							origin: true,
+							downloadSha256: true,
+						},
+					},
+				},
 			});
 			// Never send actual password to client - only indicate if one exists
 			if (options) {
@@ -26,6 +35,7 @@ export const settingsRouter = createTRPCRouter({
 					smtpPassword,
 					alipayPrivateKeyEncrypted,
 					alipayPublicKey,
+					planet,
 					...publicOptions
 				} = options;
 				return {
@@ -34,6 +44,10 @@ export const settingsRouter = createTRPCRouter({
 					hasSmtpPassword: Boolean(smtpPassword),
 					hasAlipayPublicKey: Boolean(alipayPublicKey),
 					hasAlipayPrivateKey: Boolean(alipayPrivateKeyEncrypted),
+					planetDownloadAvailable:
+						options.customPlanetUsed === true &&
+						planet?.origin === "LOCAL_GENERATED" &&
+						Boolean(planet.downloadSha256),
 				};
 			}
 			return null;

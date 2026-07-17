@@ -150,7 +150,7 @@
 		"fileName": "Nazwa pliku",
 		"fileType": "Typ pliku",
 		"binaryFile": "Plik binarny",
-		"unavailableDescription": "Administrator nie włączył niestandardowego pliku Planet.",
+		"unavailableDescription": "Plik Planet wygenerowany przez ten serwer nie jest dostępny.",
 		"downloadButton": "Pobierz planet",
 		"downloading": "Pobieranie",
 		"downloadSuccess": "Rozpoczęto pobieranie Planet",

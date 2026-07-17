@@ -150,7 +150,7 @@
 		"fileName": "Filnavn",
 		"fileType": "Filtype",
 		"binaryFile": "Binærfil",
-		"unavailableDescription": "Administratoren har ikke aktivert en egendefinert Planet.",
+		"unavailableDescription": "En Planet-fil generert av denne serveren er ikke tilgjengelig.",
 		"downloadButton": "Last ned planet",
 		"downloading": "Laster ned",
 		"downloadSuccess": "Planet-nedlastingen har startet",

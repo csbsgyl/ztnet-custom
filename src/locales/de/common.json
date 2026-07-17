@@ -150,7 +150,7 @@
 		"fileName": "Dateiname",
 		"fileType": "Dateityp",
 		"binaryFile": "Binärdatei",
-		"unavailableDescription": "Der Administrator hat kein benutzerdefiniertes Planet aktiviert.",
+		"unavailableDescription": "Eine von diesem Server erzeugte Planet-Datei ist nicht verfügbar.",
 		"downloadButton": "planet herunterladen",
 		"downloading": "Wird heruntergeladen",
 		"downloadSuccess": "Planet-Download wurde gestartet",
