@@ -267,7 +267,7 @@ const NetworkById = ({ orgIds }: IProps) => {
 								</div>
 								<div className="w-full flex justify-center">
 									<CopyToClipboard
-										text="curl -s https://install.zerotier.com | sudo bash"
+										text="https://www.zerotier.com/download/"
 										onCopy={() =>
 											toast.success(
 												t("commonToast.copyToClipboard.success", { element: "" }),
@@ -279,9 +279,7 @@ const NetworkById = ({ orgIds }: IProps) => {
 										title={t("commonToast.copyToClipboard.title")}
 									>
 										<div className="flex cursor-pointer items-center gap-2">
-											<kbd className="kbd kbd-md">
-												curl -s https://install.zerotier.com | sudo bash
-											</kbd>
+											<kbd className="kbd kbd-md">https://www.zerotier.com/download/</kbd>
 											<CopyIcon />
 										</div>
 									</CopyToClipboard>

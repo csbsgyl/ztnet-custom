@@ -7,13 +7,27 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { requireAdministrator } from "~/server/api/auth/adminApi";
 import { prisma } from "~/server/db";
 import { parsePlanetArchive } from "~/server/planetArchive";
-import { activatePreparedPlanet } from "~/server/planetFiles";
+import {
+	activatePreparedPlanet,
+	createPlanetDatabaseStateId,
+	PLANET_DATABASE_STATE_SELECT,
+	snapshotPlanetSigningKeys,
+} from "~/server/planetFiles";
 import { readPlanetWorldDownloadEntries } from "~/server/planetWorldFiles";
 import { updateLocalConf } from "~/utils/planet";
 import { ZT_FOLDER } from "~/utils/ztPaths";
 
 const MAX_WORLD_ARCHIVE_BYTES = 10 * 1024 * 1024;
 const ZTMKWORLD_BINARY = "/usr/local/bin/ztmkworld";
+
+async function readPlanetDatabaseStateId(): Promise<string> {
+	const options = await prisma.globalOptions.findUnique({
+		where: { id: 1 },
+		select: PLANET_DATABASE_STATE_SELECT,
+	});
+	if (!options) throw new Error("Global Planet options do not exist.");
+	return createPlanetDatabaseStateId(options);
+}
 
 export const config = {
 	api: {
@@ -88,7 +102,6 @@ async function importWorld(req: NextApiRequest, res: NextApiResponse): Promise<v
 		}
 
 		const imported = await parsePlanetArchive(uploadedFilePath);
-		const worldDirectory = path.join(/* turbopackIgnore: true */ ZT_FOLDER, "zt-mkworld");
 		stagingDirectory = fs.mkdtempSync(
 			path.join(/* turbopackIgnore: true */ ZT_FOLDER, ".zt-mkworld-import-"),
 		);
@@ -100,31 +113,19 @@ async function importWorld(req: NextApiRequest, res: NextApiResponse): Promise<v
 
 		for (const keyName of ["current.c25519", "previous.c25519"] as const) {
 			const importedKey = imported.keyFiles.get(keyName);
-			const existingKeyPath = path.join(
-				/* turbopackIgnore: true */ worldDirectory,
-				keyName,
-			);
 			if (importedKey) {
 				fs.writeFileSync(
 					path.join(/* turbopackIgnore: true */ stagingDirectory, keyName),
 					importedKey,
 					{ mode: 0o600 },
 				);
-			} else if (
-				fs
-					.lstatSync(/* turbopackIgnore: true */ existingKeyPath, {
-						throwIfNoEntry: false,
-					})
-					?.isFile()
-			) {
-				const stagedKeyPath = path.join(
-					/* turbopackIgnore: true */ stagingDirectory,
-					keyName,
-				);
-				fs.copyFileSync(/* turbopackIgnore: true */ existingKeyPath, stagedKeyPath);
-				fs.chmodSync(/* turbopackIgnore: true */ stagedKeyPath, 0o600);
 			}
 		}
+		const expectedSigningStateId = await snapshotPlanetSigningKeys({
+			ztFolder: ZT_FOLDER,
+			stagedWorldDirectory: stagingDirectory,
+			readDatabaseStateId: readPlanetDatabaseStateId,
+		});
 
 		execFileSync(
 			ZTMKWORLD_BINARY,
@@ -152,8 +153,21 @@ async function importWorld(req: NextApiRequest, res: NextApiResponse): Promise<v
 		await activatePreparedPlanet({
 			ztFolder: ZT_FOLDER,
 			stagedWorldDirectory: stagingDirectory,
+			expectedSigningStateId,
 			ports: imported.ports,
 			updatePorts: updateLocalConf,
+			databaseStateId: createPlanetDatabaseStateId({
+				customPlanetUsed: true,
+				planet: {
+					plBirth: imported.config.plBirth,
+					plID: imported.config.plID,
+					plRecommend: imported.config.plRecommend,
+					origin: "IMPORTED",
+					downloadSha256: null,
+					rootNodes: imported.config.rootNodes,
+				},
+			}),
+			readDatabaseStateId: readPlanetDatabaseStateId,
 			commitDatabase: () =>
 				prisma.$transaction(async (tx) => {
 					await tx.planet.upsert({

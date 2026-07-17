@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "~/server/db";
 import { AuthorizationType } from "~/types/apiTypes";
 import { canAccessProtectedResources } from "./accountAccess";
@@ -12,6 +13,67 @@ export const ORG_INVITE_TOKEN_SECRET = "_ztnet_org_invite";
 export const PASSWORD_RESET_SECRET = "_ztnet_passwd_reset";
 export const VERIFY_EMAIL_SECRET = "_ztnet_email_verify";
 export const TOTP_MFA_TOKEN_SECRET = "_ztnet_mfa_totp_token";
+
+const API_TOKEN_DIGEST_PATTERN = /^[a-f0-9]{64}$/;
+const DEFAULT_API_TOKEN_MIGRATION_BATCH_SIZE = 100;
+
+export const hashApiToken = (token: string) =>
+	crypto.createHash("sha256").update(token, "utf8").digest("hex");
+
+function storedApiTokenMatches(stored: string, supplied: string): boolean {
+	const isDigest = API_TOKEN_DIGEST_PATTERN.test(stored);
+	const expected = Buffer.from(stored, isDigest ? "hex" : "utf8");
+	const actual = Buffer.from(
+		isDigest ? hashApiToken(supplied) : supplied,
+		isDigest ? "hex" : "utf8",
+	);
+	return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+type ApiTokenMigrationClient = Pick<PrismaClient, "aPIToken">;
+
+/** Converts legacy bearer-token rows to digests without overwriting concurrent changes. */
+export async function migrateLegacyApiTokenDigests(
+	client: ApiTokenMigrationClient = prisma,
+	batchSize = DEFAULT_API_TOKEN_MIGRATION_BATCH_SIZE,
+): Promise<number> {
+	const requestedBatchSize = Math.trunc(batchSize);
+	const take = Math.min(
+		1_000,
+		Math.max(
+			1,
+			Number.isFinite(requestedBatchSize)
+				? requestedBatchSize
+				: DEFAULT_API_TOKEN_MIGRATION_BATCH_SIZE,
+		),
+	);
+	let cursor: string | undefined;
+	let migrated = 0;
+
+	while (true) {
+		const tokens = await client.aPIToken.findMany({
+			...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+			orderBy: { id: "asc" },
+			take,
+			select: { id: true, token: true },
+		});
+
+		for (const token of tokens) {
+			if (API_TOKEN_DIGEST_PATTERN.test(token.token)) continue;
+			const result = await client.aPIToken.updateMany({
+				where: { id: token.id, token: token.token },
+				data: { token: hashApiToken(token.token) },
+			});
+			migrated += result.count;
+		}
+
+		if (tokens.length < take) break;
+		cursor = tokens[tokens.length - 1]?.id;
+		if (!cursor) break;
+	}
+
+	return migrated;
+}
 
 // Generate instance specific auth secret using salt
 export const generateInstanceSecret = (contextSuffix: string) => {
@@ -73,12 +135,14 @@ type VerifyToken = {
 	apiKey: string;
 	requireAdmin?: boolean;
 	apiAuthorizationType: AuthorizationType;
+	client?: Pick<PrismaClient, "aPIToken" | "user">;
 };
 
 export async function decryptAndVerifyToken({
 	apiKey,
 	requireAdmin = false,
 	apiAuthorizationType,
+	client = prisma,
 }: VerifyToken): Promise<DecryptedTokenData> {
 	// Check if API key is provided
 	if (!apiKey) {
@@ -115,7 +179,7 @@ export async function decryptAndVerifyToken({
 	}
 
 	// get the token from the database
-	const token = await prisma.aPIToken.findUnique({
+	const token = await client.aPIToken.findUnique({
 		where: {
 			id: decryptedData.tokenId,
 			userId: decryptedData.userId,
@@ -126,7 +190,7 @@ export async function decryptAndVerifyToken({
 			token: true,
 		},
 	});
-	if (!token || token.token !== apiKey) {
+	if (!token || !storedApiTokenMatches(token.token, apiKey)) {
 		throw new Error("Invalid token");
 	}
 	if (!token.isActive) {
@@ -140,9 +204,16 @@ export async function decryptAndVerifyToken({
 			throw new Error("Invalid token");
 		}
 	}
+	if (token.token === apiKey) {
+		// Transparently migrate legacy bearer-token rows after their next valid use.
+		await client.aPIToken.update({
+			where: { id: decryptedData.tokenId },
+			data: { token: hashApiToken(apiKey) },
+		});
+	}
 
 	// Verify if the user exists and has the required token
-	const user = await prisma.user.findUnique({
+	const user = await client.user.findUnique({
 		where: {
 			id: decryptedData.userId,
 		},

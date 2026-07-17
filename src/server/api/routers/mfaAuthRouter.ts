@@ -71,6 +71,7 @@ export const mfaAuthRouter = createTRPCRouter({
 					ctx.res,
 					GENERAL_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.MFA_VALIDATE_TOKEN,
+					token,
 				);
 			} catch {
 				return { error: ErrorCode.TooManyRequests };
@@ -90,8 +91,8 @@ export const mfaAuthRouter = createTRPCRouter({
 				if (!user.twoFactorEnabled) return { error: ErrorCode.InvalidToken };
 
 				return { email: user.email };
-			} catch (_error) {
-				return { error: _error.message };
+			} catch {
+				return { error: ErrorCode.InvalidToken };
 			}
 		}),
 	mfaResetLink: publicProcedure
@@ -104,7 +105,7 @@ export const mfaAuthRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const { email } = input;
+			const email = input.email.toLowerCase();
 
 			// add rate limit
 			try {
@@ -112,6 +113,7 @@ export const mfaAuthRouter = createTRPCRouter({
 					ctx.res,
 					GENERAL_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.MFA_RESET_LINK,
+					email,
 				);
 			} catch {
 				throw new TRPCError({
@@ -128,40 +130,31 @@ export const mfaAuthRouter = createTRPCRouter({
 				},
 			});
 
-			if (!user) return "Mail sent if email exist!";
+			const response = { message: "If the email exists, a reset link has been sent." };
+			// Token creation and SMTP delivery only run after the public request path.
+			setImmediate(() => {
+				if (!user) return;
+				void Promise.resolve()
+					.then(async () => {
+						const secret = generateInstanceSecret(TOTP_MFA_TOKEN_SECRET);
+						const validationToken = jwt.sign({ id: user.id, email: user.email }, secret, {
+							expiresIn: "15m",
+						});
+						const resetLink = `${process.env.NEXTAUTH_URL}/auth/mfaRecovery/reset?token=${validationToken}`;
+						await sendMailWithTemplate(MailTemplateKey.ForgotPassword, {
+							to: email,
+							templateData: {
+								toEmail: email,
+								forgotLink: resetLink,
+							},
+						});
+					})
+					.catch((error) => {
+						console.error("Failed to send MFA reset email:", error);
+					});
+			});
 
-			const secret = generateInstanceSecret(TOTP_MFA_TOKEN_SECRET);
-			const validationToken = jwt.sign(
-				{
-					id: user.id,
-					email: user.email,
-				},
-				secret,
-				{
-					expiresIn: "15m",
-				},
-			);
-
-			const resetLink = `${process.env.NEXTAUTH_URL}/auth/mfaRecovery/reset?token=${validationToken}`;
-
-			// Send email
-			try {
-				await sendMailWithTemplate(MailTemplateKey.ForgotPassword, {
-					to: email,
-					templateData: {
-						toEmail: email,
-						forgotLink: resetLink,
-					},
-				});
-			} catch (error) {
-				console.error("Failed to send MFA reset email:", error);
-				throw new TRPCError({
-					code: "INTERNAL_SERVER_ERROR",
-					message: "Failed to send reset email. Please try again later.",
-				});
-			}
-
-			return { message: "If the email exists, a reset link has been sent." };
+			return response;
 		}),
 	mfaResetValidation: publicProcedure
 		.input(
@@ -180,6 +173,7 @@ export const mfaAuthRouter = createTRPCRouter({
 					ctx.res,
 					GENERAL_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.MFA_RESET_VALIDATION,
+					email,
 				);
 			} catch {
 				throw new TRPCError({
@@ -240,18 +234,13 @@ export const mfaAuthRouter = createTRPCRouter({
 					});
 				}
 
-				// Remove the used recovery code
-				const updatedRecoveryCodes = user.twoFactorRecoveryCodes.filter(
-					async (hashedCode) => !(await bcrypt.compare(recoveryCode, hashedCode)),
-				);
-
 				// Disable 2FA
 				await ctx.prisma.user.update({
 					where: { id: user.id },
 					data: {
 						twoFactorEnabled: false,
 						twoFactorSecret: null,
-						twoFactorRecoveryCodes: updatedRecoveryCodes,
+						twoFactorRecoveryCodes: [],
 					},
 				});
 
@@ -285,6 +274,7 @@ export const mfaAuthRouter = createTRPCRouter({
 					ctx.res,
 					GENERAL_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.MFA_VALIDATE_RECOVERY,
+					token,
 				);
 			} catch {
 				throw new TRPCError({

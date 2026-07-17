@@ -45,7 +45,7 @@ services:
       - zerotier:/var/lib/zerotier-one
       - ./backups:/app/backups
     ports:
-      - "${HTTP_PORT:-3000}:3000"
+      - "${PUBLIC_BIND:-127.0.0.1}:${HTTP_PORT:-3000}:3000"
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
@@ -55,6 +55,8 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:?NEXTAUTH_URL is required}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required}
       NEXTAUTH_URL_INTERNAL: http://ztnet:3000
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      RATE_LIMIT_TRUST_PROXY: ${RATE_LIMIT_TRUST_PROXY:-false}
       AUTO_UPDATE: ${AUTO_UPDATE:-true}
       AUTO_UPDATE_INTERVAL: ${AUTO_UPDATE_INTERVAL:-3600}
       ZTNET_IMAGE: ${ZTNET_IMAGE:-ghcr.io/csbsgyl/ztnet-custom:latest}
@@ -74,7 +76,7 @@ services:
       - zerotier
 
   restart-helper:
-    image: ${RESTART_HELPER_IMAGE:-ghcr.io/csbsgyl/ztnet-custom:ops-latest}
+    image: ${RESTART_HELPER_IMAGE:-ghcr.io/csbsgyl/ztnet-custom@sha256:b36809cd64857f8bd95dc6865960b772cf2d2bf1258296c05ebbd0d4e843cb84}
     container_name: ${APP_NAME:-ztnet-custom}-restart-helper
     restart: unless-stopped
     entrypoint: ["node", "/app/container-ops.mjs"]
@@ -90,9 +92,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    labels:
-      com.centurylinklabs.watchtower.enable: "${AUTO_UPDATE:-true}"
-      com.centurylinklabs.watchtower.scope: "${APP_NAME:-ztnet-custom}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -101,7 +100,9 @@ services:
       - zerotier
 
   updater:
-    image: ${UPDATER_IMAGE:-nickfedor/watchtower:1.19.0}
+    profiles:
+      - auto-update
+    image: ${UPDATER_IMAGE:-nickfedor/watchtower@sha256:c1dfdf27fe805dcfefe1cf048cee6960a511c097a99aa355b0bc4be6e6bb3bdf}
     container_name: ${APP_NAME:-ztnet-custom}-updater
     restart: unless-stopped
     environment:

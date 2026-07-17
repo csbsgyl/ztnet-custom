@@ -21,15 +21,14 @@ import {
 	network,
 	network_members,
 	Organization,
+	Prisma,
 	Role,
-	User,
 	UserOrganizationRole,
-	Webhook,
 } from "@prisma/client";
 import { checkUserOrganizationRole } from "~/utils/role";
 import { HookType, NetworkCreated, OrgMemberRemoved } from "~/types/webhooks";
 import { throwError } from "~/server/helpers/errorHandler";
-import { sendWebhook } from "~/utils/webhook";
+import { sendWebhook, validateWebhookUrl, WEBHOOK_MAX_URL_LENGTH } from "~/utils/webhook";
 import { nameGeneratorConfig } from "../services/networkService";
 import rateLimit from "~/utils/rateLimit";
 import { RoutesEntity } from "~/types/local/network";
@@ -40,6 +39,29 @@ import { UserContext } from "~/types/ctx";
 
 // Create a Zod schema for the HookType enum
 const HookTypeEnum = z.enum(Object.values(HookType) as [HookType, ...HookType[]]);
+
+const organizationUserSelect = {
+	id: true,
+	name: true,
+	email: true,
+} satisfies Prisma.UserSelect;
+
+const organizationWebhookSelect = {
+	id: true,
+	name: true,
+	description: true,
+	url: true,
+	enabled: true,
+	eventTypes: true,
+	lastDelivery: true,
+	organizationId: true,
+	createdAt: true,
+} satisfies Prisma.WebhookSelect;
+
+type OrganizationUser = Prisma.UserGetPayload<{ select: typeof organizationUserSelect }>;
+type OrganizationWebhook = Prisma.WebhookGetPayload<{
+	select: typeof organizationWebhookSelect;
+}>;
 
 // Rate limit configuration from environment variables
 const RATE_LIMIT_WINDOW_MS =
@@ -149,11 +171,22 @@ export const organizationRouter = createTRPCRouter({
 					},
 				});
 
-				// Optionally, return the updated user with memberOfOrgs included
+				// Return only the account fields needed by the caller.
 				return await prisma.user.findUnique({
 					where: { id: ctx.session.user.id },
-					include: {
-						memberOfOrgs: true,
+					select: {
+						...organizationUserSelect,
+						memberOfOrgs: {
+							select: {
+								id: true,
+								createdAt: true,
+								ownerId: true,
+								orgName: true,
+								description: true,
+								isActive: true,
+								require2FA: true,
+							},
+						},
 					},
 				});
 			});
@@ -267,13 +300,13 @@ export const organizationRouter = createTRPCRouter({
 			},
 			include: {
 				userRoles: true,
-				users: true,
+				users: { select: organizationUserSelect },
 				invitations: {
 					include: {
 						invitation: true,
 					},
 				},
-				webhooks: true,
+				webhooks: { select: organizationWebhookSelect },
 			},
 			//order by desc
 			orderBy: {
@@ -405,8 +438,8 @@ export const organizationRouter = createTRPCRouter({
 
 			interface OrganizationWithCounts extends Organization {
 				userRoles: UserOrganizationRole[];
-				users: User[];
-				webhooks: Webhook[];
+				users: OrganizationUser[];
+				webhooks: OrganizationWebhook[];
 				invitations: Invitation[];
 				memberCounts: MemberCounts;
 				networks: (network & {
@@ -421,8 +454,8 @@ export const organizationRouter = createTRPCRouter({
 				},
 				include: {
 					userRoles: true,
-					users: true,
-					webhooks: true,
+					users: { select: organizationUserSelect },
+					webhooks: { select: organizationWebhookSelect },
 					invitations: true,
 					networks: {
 						include: {
@@ -974,7 +1007,7 @@ export const organizationRouter = createTRPCRouter({
 					},
 				},
 				include: {
-					users: true, // Assuming you want to return the updated list of users
+					users: { select: organizationUserSelect },
 				},
 			});
 
@@ -1214,6 +1247,10 @@ export const organizationRouter = createTRPCRouter({
 					where: {
 						email: tokenPayload.email,
 					},
+					select: {
+						id: true,
+						name: true,
+					},
 				});
 
 				// if ctx user and the user has a valid invite add him.
@@ -1248,9 +1285,6 @@ export const organizationRouter = createTRPCRouter({
 								},
 							},
 						},
-						include: {
-							users: true,
-						},
 					});
 
 					// delete the invitation
@@ -1275,7 +1309,6 @@ export const organizationRouter = createTRPCRouter({
 					});
 
 					return {
-						user: doesUserExist,
 						organizationId: tokenPayload.organizationId,
 					};
 				}
@@ -1445,6 +1478,9 @@ export const organizationRouter = createTRPCRouter({
 			const doesUserExist = await ctx.prisma.user.findFirst({
 				where: {
 					email: email,
+				},
+				select: {
+					id: true,
 				},
 			});
 
@@ -1671,7 +1707,7 @@ export const organizationRouter = createTRPCRouter({
 		.input(
 			z.object({
 				organizationId: z.string(),
-				webhookUrl: z.string(),
+				webhookUrl: z.string().max(WEBHOOK_MAX_URL_LENGTH),
 				webhookName: z.string(),
 				hookType: z.array(HookTypeEnum),
 				webhookId: z.string().optional(),
@@ -1685,37 +1721,55 @@ export const organizationRouter = createTRPCRouter({
 				minimumRequiredRole: Role.ADMIN,
 			});
 
-			// Validate the URL to be HTTPS
-			if (!input.webhookUrl.startsWith("https://")) {
-				// throw error
-				console.error("Webhook URL is not HTTPS");
-				return throwError(`Webhook URL needs to be HTTPS: ${input.webhookUrl}`);
-			}
-
 			if (input.hookType.length === 0) {
-				// throw error
 				return throwError("Webhook needs to have at least one action type");
 			}
-			// create webhook
-			return await ctx.prisma.webhook.upsert({
-				where: {
-					id: input.webhookId,
-				},
-				create: {
-					url: input.webhookUrl,
-					description: "",
-					name: input.webhookName,
-					eventTypes: input.hookType,
-					organization: {
-						connect: { id: input.organizationId },
+
+			let webhookUrl: string;
+			try {
+				webhookUrl = (await validateWebhookUrl(input.webhookUrl)).toString();
+			} catch (error) {
+				return throwError(
+					error instanceof Error ? error.message : "Webhook URL is invalid.",
+				);
+			}
+
+			const webhookId = input.webhookId?.trim();
+			const data = {
+				url: webhookUrl,
+				description: "",
+				name: input.webhookName,
+				eventTypes: input.hookType,
+			};
+
+			if (!webhookId) {
+				return await ctx.prisma.webhook.create({
+					data: {
+						...data,
+						enabled: true,
+						organizationId: input.organizationId,
 					},
+					select: organizationWebhookSelect,
+				});
+			}
+
+			const updated = await ctx.prisma.webhook.updateMany({
+				where: {
+					id: webhookId,
+					organizationId: input.organizationId,
 				},
-				update: {
-					url: input.webhookUrl,
-					description: "",
-					name: input.webhookName,
-					eventTypes: input.hookType,
+				data,
+			});
+			if (updated.count !== 1) {
+				return throwError("Webhook not found.", "NOT_FOUND");
+			}
+
+			return await ctx.prisma.webhook.findFirst({
+				where: {
+					id: webhookId,
+					organizationId: input.organizationId,
 				},
+				select: organizationWebhookSelect,
 			});
 		}),
 	updateOrganizationSettings: protectedProcedure

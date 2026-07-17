@@ -3,14 +3,15 @@
  *
  * This middleware fires before better-auth verifies the password against
  * Account.password. It owns:
- *   1. OAUTH_EXCLUSIVE_LOGIN defense-in-depth (refuse /sign-in/email + /sign-up/email).
- *   2. Per-account cooldown after MAX_FAILED_ATTEMPTS bad logins.
- *   3. Failed-password attempt counter increment (without throwing — better-auth
+ *   1. OAUTH_EXCLUSIVE_LOGIN defense-in-depth (refuse /sign-in/email).
+ *   2. Refusal of Better Auth credential-mutation endpoints that bypass User.hash.
+ *   3. Per-account cooldown after MAX_FAILED_ATTEMPTS bad logins.
+ *   4. Failed-password attempt counter increment (without throwing — better-auth
  *      produces the user-facing 401, we just bookkeep).
- *   4. One-time backfill of the credential `Account` row for users who pre-date
+ *   5. One-time backfill of the credential `Account` row for users who pre-date
  *      the next-auth → better-auth migration. Without this, their first login
  *      after upgrade would fail because better-auth reads from `Account.password`.
- *   5. TOTP enforcement when `User.twoFactorEnabled = true`.
+ *   6. TOTP enforcement when `User.twoFactorEnabled = true`.
  *
  * Bypassing any of these is a security regression, so each path has an explicit test.
  */
@@ -120,6 +121,21 @@ describe("OAUTH_EXCLUSIVE_LOGIN defense-in-depth", () => {
 		await expect(
 			runBeforeAuthHook(makeCtx({ path: "/sign-in/email" })),
 		).resolves.toBeUndefined();
+	});
+});
+
+describe("credential mutation endpoint boundaries", () => {
+	it.each([
+		"/sign-up/email",
+		"/change-password",
+		"/request-password-reset",
+		"/reset-password",
+		"/reset-password/:token",
+	])("rejects Better Auth endpoint %s", async (path) => {
+		await expect(runBeforeAuthHook(makeCtx({ path }))).rejects.toThrow(
+			/Use the ZTNET account workflow/i,
+		);
+		expect(prisma.user.findFirst).not.toHaveBeenCalled();
 	});
 });
 

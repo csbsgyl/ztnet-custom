@@ -84,7 +84,9 @@ test("administrator deletion removes controller networks before deleting all use
 		return target;
 	});
 
-	await expect(harness.caller.deleteUser({ id: target.id })).resolves.toEqual(target);
+	await expect(harness.caller.deleteUser({ id: target.id })).resolves.toEqual({
+		status: "success",
+	});
 
 	expect(ztController.network_members).toHaveBeenCalledWith(
 		expect.objectContaining({
@@ -106,7 +108,10 @@ test("administrator deletion removes controller networks before deleting all use
 	expect(harness.verificationDeleteMany).toHaveBeenCalledWith({
 		where: { identifier: { in: [target.id, target.email] } },
 	});
-	expect(harness.userDelete).toHaveBeenCalledWith({ where: { id: target.id } });
+	expect(harness.userDelete).toHaveBeenCalledWith({
+		where: { id: target.id },
+		select: { id: true },
+	});
 	expect(disconnectUserSockets).toHaveBeenCalledWith(target.id);
 });
 

@@ -1,4 +1,4 @@
-ARG NODEJS_IMAGE=node:24-bookworm-slim
+ARG NODEJS_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 FROM --platform=$BUILDPLATFORM $NODEJS_IMAGE AS base
 
 # Install dependencies only when needed
@@ -66,11 +66,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 RUN apt update && apt install -y curl sudo postgresql-client && apt clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-# Update npm to latest version to suppress update notices
-RUN npm install -g npm@latest
 # need to install these package for seeding the database
-RUN npm install @prisma/client@6.19.3 @paralleldrive/cuid2
-RUN npm install -g prisma@6.19.3 ts-node
+RUN npm install @prisma/client@6.19.3 @paralleldrive/cuid2@2.2.2
+RUN npm install -g prisma@6.19.3 ts-node@10.9.1
 RUN mkdir -p /var/lib/zerotier-one && chown -R nextjs:nodejs /var/lib/zerotier-one && chmod -R 777 /var/lib/zerotier-one
 
 COPY --from=builder /app/next.config.mjs ./

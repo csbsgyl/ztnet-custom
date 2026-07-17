@@ -274,9 +274,9 @@ const Account = () => {
 					fields={[
 						{
 							name: "ztCentralApiKey",
-							type: "text",
-							placeholder: "api key",
-							value: me?.options?.ztCentralApiKey,
+							type: "password",
+							placeholder: me?.options?.hasZtCentralApiKey ? "********" : "api key",
+							value: "",
 						},
 					]}
 					submitHandler={(params) => {

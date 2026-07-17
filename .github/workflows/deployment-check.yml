@@ -9,7 +9,7 @@ on:
       - "container-ops.mjs"
       - "Dockerfile"
       - "Dockerfile.ops"
-      - ".github/workflows/deployment-check.yml"
+      - ".github/workflows/**"
   pull_request:
     branches:
       - main
@@ -18,7 +18,7 @@ on:
       - "container-ops.mjs"
       - "Dockerfile"
       - "Dockerfile.ops"
-      - ".github/workflows/deployment-check.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
@@ -33,13 +33,54 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Check installer syntax
         run: bash -n deploy/one-click-install.sh
 
+      - name: Verify immutable action references
+        run: |
+          reference_is_immutable() {
+            local reference="$1"
+            local revision
+
+            case "$reference" in
+              ./*) return 0 ;;
+              *@*)
+                revision="${reference##*@}"
+                [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]]
+                ;;
+              *) return 1 ;;
+            esac
+          }
+
+          for invalid_reference in \
+            actions/example@v4.2.2 \
+            actions/example@release \
+            actions/example@1234567; do
+            if reference_is_immutable "$invalid_reference"; then
+              echo "Action reference validator accepted ${invalid_reference}." >&2
+              exit 1
+            fi
+          done
+
+          invalid=0
+          while IFS= read -r workflow; do
+            while IFS= read -r reference; do
+              if ! reference_is_immutable "$reference"; then
+                echo "${workflow}: mutable or invalid action reference ${reference}" >&2
+                invalid=1
+              fi
+            done < <(
+              sed -nE "s/^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*['\"]?([^'\"[:space:]#]+).*/\\2/p" "$workflow"
+            )
+          done < <(
+            find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print
+          )
+          exit "$invalid"
+
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
 
@@ -49,24 +90,11 @@ jobs:
       - name: Build restart helper image
         run: docker build -f Dockerfile.ops -t ztnet-restart-helper:test .
 
-      - name: Verify GitHub accelerator
-        env:
-          ACCELERATED_SCRIPT_URL: https://github.xiaohangyun.org/https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/deploy/one-click-install.sh
-        run: |
-          accelerated_script="$(mktemp)"
-          trap 'rm -f "$accelerated_script"' EXIT
-          for attempt in 1 2 3; do
-            if curl -fsSL --connect-timeout 8 --max-time 30 "$ACCELERATED_SCRIPT_URL" -o "$accelerated_script" &&
-              cmp -s deploy/one-click-install.sh "$accelerated_script"; then
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "GitHub accelerator did not return the committed installer." >&2
-          exit 1
-
       - name: Test installer mirror selection
         run: bash deploy/tests/one-click-install-test.sh
+
+      - name: Test fork preparation
+        run: bash deploy/tests/prepare-github-fork-test.sh
 
       - name: Validate Docker Compose
         run: |

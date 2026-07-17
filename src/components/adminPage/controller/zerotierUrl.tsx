@@ -77,10 +77,7 @@ const ZerotierUrl = () => {
 					]}
 					submitHandler={(params) =>
 						new Promise((resolve) => {
-							setZtOptions({
-								localControllerSecret: me?.options?.localControllerSecret,
-								...params,
-							});
+							setZtOptions({ ...params });
 							resolve(true);
 						})
 					}
@@ -95,17 +92,14 @@ const ZerotierUrl = () => {
 					fields={[
 						{
 							name: "localControllerSecret",
-							type: "text",
-							placeholder: me?.options?.localControllerSecret || "********",
-							value: me?.options?.localControllerSecret || "",
+							type: "password",
+							placeholder: me?.options?.hasLocalControllerSecret ? "********" : "secret",
+							value: "",
 						},
 					]}
 					submitHandler={(params) =>
 						new Promise((resolve) => {
-							setZtOptions({
-								localControllerUrl: me?.options?.localControllerUrl,
-								...params,
-							});
+							setZtOptions({ ...params });
 							resolve(true);
 						})
 					}

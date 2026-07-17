@@ -1,5 +1,6 @@
-import { PrismaClient, User } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import type { NextApiRequest, NextApiResponse } from "next";
+import { TRPCError } from "@trpc/server";
 import { appRouter } from "~/server/api/root";
 import { createTRPCContext } from "~/server/api/trpc";
 import { prisma } from "~/server/db";
@@ -41,7 +42,7 @@ export default async function createUserHandler(
 }
 
 interface UserResponse {
-	user?: User;
+	user?: { id: string };
 	Error?: string;
 	apiToken?: string;
 }
@@ -51,27 +52,11 @@ export const POST_createUser = async (req: NextApiRequest, res: NextApiResponse)
 
 	const NEEDS_ADMIN = true;
 
-	// Count the number of users in database
-	const userCount = await prisma.user.count();
-
 	try {
-		if (userCount > 0) {
-			// If there are users, verify the API key
-			await decryptAndVerifyToken({
-				apiKey,
-				requireAdmin: NEEDS_ADMIN,
-				apiAuthorizationType: AuthorizationType.PERSONAL,
-			});
-		}
-
 		// Input validation
 		const validatedInput = createUserSchema.parse(req.body);
 		// get data from the post request
 		const { email, password, name, expiresAt, generateApiToken } = validatedInput;
-
-		if (userCount === 0 && expiresAt !== undefined) {
-			return res.status(400).json({ message: "Cannot add expiresAt for Admin user!" });
-		}
 
 		// Check if expiresAt is a valid date
 		if (expiresAt !== undefined) {
@@ -88,6 +73,23 @@ export const POST_createUser = async (req: NextApiRequest, res: NextApiResponse)
 		 *
 		 */
 		const result = await prisma.$transaction(async (transactionPrisma) => {
+			await transactionPrisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"ztnet-user-registration"}))`;
+			const userCount = await transactionPrisma.user.count();
+			if (userCount > 0) {
+				await decryptAndVerifyToken({
+					apiKey,
+					requireAdmin: NEEDS_ADMIN,
+					apiAuthorizationType: AuthorizationType.PERSONAL,
+					client: transactionPrisma,
+				});
+			}
+			if (userCount === 0 && expiresAt !== undefined) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "Cannot add expiresAt for Admin user!",
+				});
+			}
+
 			// Create context with the transaction-aware Prisma instance
 			const ctx = await createTRPCContext({ req, res });
 

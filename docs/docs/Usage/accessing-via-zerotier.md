@@ -99,11 +99,11 @@ In your `docker-compose.yml`, comment out or remove the entire `zerotier` servic
 
 #### Step 2: Install ZeroTier on Host
 
-Install ZeroTier One on your host system:
-
-```bash
-curl -s https://install.zerotier.com | sudo bash
-```
+Install ZeroTier One by following the official platform-specific package
+instructions. Prefer repository-signed packages. If an installer script is
+required, download it to a file, inspect and verify it, and only then execute
+that local file with elevated privileges. Do not pipe a network response
+directly into `sudo bash`.
 
 #### Step 3: Configure Management Access
 

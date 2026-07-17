@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import {
@@ -17,9 +18,10 @@ import {
 	VERIFY_EMAIL_SECRET,
 	encrypt,
 	generateInstanceSecret,
+	hashApiToken,
 } from "~/utils/encryption";
 import { isRunningInDocker } from "~/utils/docker";
-import { Invitation, User, UserDevice, UserOptions } from "@prisma/client";
+import { Invitation, Prisma } from "@prisma/client";
 import { validateOrganizationToken } from "../services/organizationAuthService";
 import rateLimit from "~/utils/rateLimit";
 import { ErrorCode } from "~/utils/errorCode";
@@ -56,6 +58,23 @@ const RATE_LIMIT_TOKENS = {
 	EMAIL_VERIFICATION_LINK: "EMAIL_VERIFICATION_LINK",
 } as const;
 
+type PasswordResetPayload = {
+	id: string;
+	email: string;
+	passwordFingerprint: string;
+};
+
+function passwordFingerprint(hash: string | null | undefined): string {
+	return createHash("sha256")
+		.update(hash || "", "utf8")
+		.digest("hex");
+}
+
+function fingerprintMatches(actual: string | undefined, expected: string): boolean {
+	if (!actual || !/^[a-f0-9]{64}$/.test(actual)) return false;
+	return timingSafeEqual(Buffer.from(actual, "hex"), Buffer.from(expected, "hex"));
+}
+
 export const authRouter = createTRPCRouter({
 	register: publicProcedure
 		.input(
@@ -76,6 +95,7 @@ export const authRouter = createTRPCRouter({
 					ctx.res,
 					GENERAL_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.REGISTER_USER,
+					input.email,
 				);
 			} catch {
 				throw new TRPCError({
@@ -104,202 +124,173 @@ export const authRouter = createTRPCRouter({
 				ztnetOrganizationToken,
 				email,
 			);
-			const invitationToken = ztnetInvitationCode?.trim() || token?.trim();
-
-			// ztnet user invitation
-			let invitation: Invitation | null = null;
-
-			// ztnet user invitation
-			const hasValidCode =
-				invitationToken &&
-				(await (async () => {
-					if (!ztnetInvitationCode.trim()) {
-						throw new TRPCError({
-							code: "BAD_REQUEST",
-							message: "No invitation code provided",
-						});
-					}
-					invitation = await ctx.prisma.invitation.findUnique({
-						where: { token: token.trim(), secret: ztnetInvitationCode.trim() },
+			const siteInviteToken = token?.trim();
+			const siteInviteSecret = ztnetInvitationCode?.trim();
+			if (
+				(siteInviteToken && !siteInviteSecret) ||
+				(!siteInviteToken && siteInviteSecret)
+			) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "Both the invitation link and code are required.",
+				});
+			}
+			if (siteInviteToken) {
+				try {
+					jwt.verify(siteInviteToken, process.env.NEXTAUTH_SECRET);
+				} catch {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: "Invitation has expired or is invalid",
 					});
+				}
+			}
 
+			if (!mediumPassword.test(password)) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "Password does not meet the requirements!",
+				});
+			}
+			const hash = bcrypt.hashSync(password, 10);
+
+			const registerWithTransaction = async (transaction: Prisma.TransactionClient) => {
+				// Registration volume is low. Serializing it makes first-admin assignment,
+				// invitation consumption, and user creation one atomic decision.
+				await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"ztnet-user-registration"}))`;
+
+				let invitation: Invitation | null = null;
+				if (siteInviteToken && siteInviteSecret) {
+					invitation = await transaction.invitation.findUnique({
+						where: { token: siteInviteToken, secret: siteInviteSecret },
+					});
 					if (
 						!invitation ||
 						invitation.used ||
-						invitation.timesUsed >= invitation.timesCanUse
+						invitation.timesUsed >= invitation.timesCanUse ||
+						invitation.expiresAt.getTime() <= Date.now()
 					) {
-						throw new TRPCError({
-							code: "BAD_REQUEST",
-							message: invitation
-								? "Code has already been used"
-								: "Invitation has expired or is invalid",
-						});
-					}
-
-					// Validate the token using jwt
-					try {
-						jwt.verify(token.trim(), process.env.NEXTAUTH_SECRET);
-					} catch (_e) {
 						throw new TRPCError({
 							code: "BAD_REQUEST",
 							message: "Invitation has expired or is invalid",
 						});
 					}
+				}
 
-					await ctx.prisma.invitation.update({
-						where: { token: token.trim() },
-						data: {
-							used: invitation.timesUsed + 1 >= invitation.timesCanUse,
-							timesUsed: {
-								increment: 1,
-							},
-						},
-					});
-
-					return true;
-				})());
-
-			// check if enableRegistration is true
-			if (!settings.enableRegistration && !hasValidCode && !decryptedOrgToken) {
-				throw new TRPCError({
-					code: "BAD_REQUEST",
-					message: "Registration is disabled! Please contact the administrator.",
-				});
-			}
-
-			// Email validation
-			if (!email) return new Error("Email required!");
-			if (!z.string().nonempty().parse(email)) return new Error("Email not supported!");
-
-			// Fecth from database
-			// const user = await client.query(`SELECT * FROM users WHERE email = $1 FETCH FIRST ROW ONLY`, [email]);
-			const registerUser = await ctx.prisma.user.findFirst({
-				where: {
-					email: {
-						equals: email,
-						mode: "insensitive",
-					},
-				},
-			});
-
-			// validate
-			if (registerUser) {
-				// eslint-disable-next-line no-throw-literal
-				// throw new AuthenticationError(`email "${email}" already taken`);
-				throw new TRPCError({
-					code: "NOT_FOUND",
-					message: `email "${email}" already taken`,
-					// optional: pass the original error to retain stack trace
-					// cause: theError,
-				});
-			}
-
-			// hash password
-			if (password) {
-				if (!mediumPassword.test(password))
+				if (settings?.enableRegistration !== true && !invitation && !decryptedOrgToken) {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
-						message: "Password does not meet the requirements!",
-						// optional: pass the original error to retain stack trace
-						// cause: theError,
+						message: "Registration is disabled! Please contact the administrator.",
 					});
-			}
+				}
 
-			const hash = bcrypt.hashSync(password, 10);
+				const registerUser = await transaction.user.findFirst({
+					where: { email: { equals: email, mode: "insensitive" } },
+					select: { id: true },
+				});
+				if (registerUser) {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: `email "${email}" already taken`,
+					});
+				}
 
-			// TODO send validation link to user by mail
-			// sendMailValidationLink(i);
-
-			// Check the total number of users in the database
-			const userCount = await ctx.prisma.user.count();
-
-			// Fetch the default user group if any.
-			const defaultUserGroup = await ctx.prisma.userGroup.findFirst({
-				where: {
-					isDefault: true,
-				},
-			});
-
-			// create new user
-			const newUser = await ctx.prisma.user.create({
-				data: {
-					name,
-					email,
-					expiresAt,
-					lastLogin: new Date().toISOString(),
-					role: userCount === 0 ? "ADMIN" : "USER",
-					hash,
-
-					// Conditionally assign user to a group
-					...(invitation?.groupId
-						? {
-								userGroup: {
-									connect: {
-										id: parseInt(invitation.groupId, 10),
-									},
-								},
-							}
-						: defaultUserGroup
+				const [userCount, defaultUserGroup] = await Promise.all([
+					transaction.user.count(),
+					transaction.userGroup.findFirst({ where: { isDefault: true } }),
+				]);
+				const configuredAdminEmail = process.env.INITIAL_ADMIN_EMAIL?.trim();
+				if (
+					userCount === 0 &&
+					configuredAdminEmail &&
+					email !== normalizeEmail(configuredAdminEmail)
+				) {
+					throw new TRPCError({
+						code: "FORBIDDEN",
+						message: "initial_admin_setup_required",
+					});
+				}
+				const created = await transaction.user.create({
+					data: {
+						name,
+						email,
+						expiresAt,
+						lastLogin: new Date(),
+						role: userCount === 0 ? "ADMIN" : "USER",
+						hash,
+						...(invitation?.groupId
 							? {
 									userGroup: {
-										connect: {
-											id: defaultUserGroup.id,
-										},
+										connect: { id: Number.parseInt(invitation.groupId, 10) },
 									},
 								}
-							: {}),
-					// add user to organizationRoles if the token is valid
-					organizationRoles: decryptedOrgToken
-						? {
-								create: {
-									organizationId: decryptedOrgToken.organizationId,
-									role: decryptedOrgToken.invitation.role,
-								},
-							}
-						: undefined,
-					// add the user to the organization if the token is valid
-					memberOfOrgs: decryptedOrgToken
-						? {
-								connect: {
-									id: decryptedOrgToken.organizationId,
-								},
-							}
-						: undefined,
-					options: {
-						create: {
-							localControllerUrl: isRunningInDocker()
-								? "http://zerotier:9993"
-								: "http://127.0.0.1:9993",
+							: defaultUserGroup
+								? { userGroup: { connect: { id: defaultUserGroup.id } } }
+								: {}),
+						organizationRoles: decryptedOrgToken
+							? {
+									create: {
+										organizationId: decryptedOrgToken.organizationId,
+										role: decryptedOrgToken.invitation.role,
+									},
+								}
+							: undefined,
+						memberOfOrgs: decryptedOrgToken
+							? { connect: { id: decryptedOrgToken.organizationId } }
+							: undefined,
+						options: {
+							create: {
+								localControllerUrl: isRunningInDocker()
+									? "http://zerotier:9993"
+									: "http://127.0.0.1:9993",
+							},
 						},
 					},
-				},
-				select: {
-					id: true,
-					name: true,
-					email: true,
-					expiresAt: true,
-					role: true,
-					memberOfOrgs: {
-						select: {
-							id: true,
-							orgName: true,
-						},
+					select: {
+						id: true,
+						name: true,
+						email: true,
+						expiresAt: true,
+						role: true,
+						memberOfOrgs: { select: { id: true, orgName: true } },
 					},
-				},
-			});
+				});
 
-			// Mirror the password into the better-auth credential Account row so the
-			// user can immediately sign in via `authClient.signIn.email`.
-			await upsertCredentialAccount(newUser.id, hash, ctx.prisma);
+				await upsertCredentialAccount(created.id, hash, transaction);
+				if (invitation) {
+					await transaction.invitation.update({
+						where: { id: invitation.id },
+						data: {
+							timesUsed: { increment: 1 },
+							used: invitation.timesUsed + 1 >= invitation.timesCanUse,
+						},
+					});
+				}
+				if (decryptedOrgToken && ztnetOrganizationToken) {
+					await transaction.activityLog.create({
+						data: {
+							action: `User ${created.name} has registered with email ${created.email} and has been added to the organization ${decryptedOrgToken.organizationId} with the role ${decryptedOrgToken.invitation.role}!`,
+							performedById: decryptedOrgToken.invitation.invitedById,
+							organizationId: decryptedOrgToken.organizationId,
+						},
+					});
+					await transaction.invitation.delete({
+						where: { token: ztnetOrganizationToken },
+					});
+				}
+				return created;
+			};
+			const newUser =
+				typeof ctx.prisma.$transaction === "function"
+					? await ctx.prisma.$transaction(registerWithTransaction, {
+							isolationLevel: "Serializable",
+						})
+					: await registerWithTransaction(
+							ctx.prisma as unknown as Prisma.TransactionClient,
+						);
 
 			// Send admin notification
-			const globalOptions = await ctx.prisma.globalOptions.findFirst({
-				where: {
-					id: 1,
-				},
-			});
-
-			if (globalOptions?.userRegistrationNotification) {
+			if (settings?.userRegistrationNotification) {
 				// A failed admin-notification email (e.g. misconfigured SMTP or a
 				// secret mismatch) must never break the user's registration. Isolate
 				// each recipient so one failure doesn't skip the other admins.
@@ -331,31 +322,12 @@ export const authRouter = createTRPCRouter({
 					console.error("Failed to load admins for registration notification:", e);
 				}
 			}
-			// add log if hasValidOrganizationToken is true
-			if (decryptedOrgToken) {
-				// Log the action
-				await ctx.prisma.activityLog.create({
-					data: {
-						action: `User ${newUser.name} has registered with email ${newUser.email} and has been added to the organization ${decryptedOrgToken.organizationId} with the role ${decryptedOrgToken?.invitation.role}!`,
-						performedById: decryptedOrgToken?.invitation?.invitedById,
-						organizationId: decryptedOrgToken?.organizationId,
-					},
-				});
-
-				// delete the organization token
-				await ctx.prisma.invitation.delete({
-					where: {
-						token: ztnetOrganizationToken,
-					},
-				});
-			}
 			return {
 				user: newUser,
 			};
 		}),
 	me: protectedProcedure.query(async ({ ctx }) => {
-		// add type that extend the user type with urlFromEnv
-		const user = (await ctx.prisma.user.findFirst({
+		const user = await ctx.prisma.user.findFirst({
 			where: {
 				id: ctx.session.user.id,
 			},
@@ -364,29 +336,16 @@ export const authRouter = createTRPCRouter({
 				memberOfOrgs: true,
 				UserDevice: true,
 			},
-		})) as User & {
-			options?: UserOptions & {
-				urlFromEnv?: boolean;
-				secretFromEnv?: boolean;
-				localControllerUrlPlaceholder?: string;
-			};
-			memberOfOrgs?: {
-				id: string;
-				ownerId: string;
-				orgName: string;
-				description: string | null;
-				isActive: boolean;
-			}[];
-			UserDevice?: UserDevice[];
-			currentDeviceId?: string;
-		};
-		user.options.localControllerUrlPlaceholder = isRunningInDocker()
-			? "http://zerotier:9993"
-			: "http://127.0.0.1:9993";
+		});
+		if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
 
-		// Set secret environment status
-		user.options.urlFromEnv = !!process.env.ZT_ADDR;
-		user.options.secretFromEnv = !!process.env.ZT_SECRET;
+		const options =
+			user.options ??
+			(await ctx.prisma.userOptions.upsert({
+				where: { userId: user.id },
+				create: { userId: user.id },
+				update: {},
+			}));
 
 		// Read current device ID from cookie for device identification.
 		// Cookie name is preserved across the next-auth → better-auth migration on
@@ -396,9 +355,33 @@ export const authRouter = createTRPCRouter({
 		const deviceCookie = cookieHeader
 			.split(";")
 			.find((c) => c.trim().startsWith(`${DEVICE_SALT_COOKIE_NAME}=`));
-		user.currentDeviceId = deviceCookie?.split("=")?.[1]?.trim() || undefined;
+		const currentDeviceId = deviceCookie?.split("=")?.[1]?.trim() || undefined;
 
-		return user;
+		const {
+			hash: _hash,
+			tempPassword: _tempPassword,
+			twoFactorSecret: _twoFactorSecret,
+			twoFactorRecoveryCodes: _twoFactorRecoveryCodes,
+			failedLoginAttempts: _failedLoginAttempts,
+			lastFailedLoginAttempt: _lastFailedLoginAttempt,
+			options: _options,
+			...safeUser
+		} = user;
+		const { ztCentralApiKey, localControllerSecret, ...safeOptions } = options;
+		return {
+			...safeUser,
+			currentDeviceId,
+			options: {
+				...safeOptions,
+				hasZtCentralApiKey: Boolean(ztCentralApiKey),
+				hasLocalControllerSecret: Boolean(localControllerSecret),
+				localControllerUrlPlaceholder: isRunningInDocker()
+					? "http://zerotier:9993"
+					: "http://127.0.0.1:9993",
+				urlFromEnv: Boolean(process.env.ZT_ADDR),
+				secretFromEnv: Boolean(process.env.ZT_SECRET),
+			},
+		};
 	}),
 	update: protectedProcedure
 		.input(
@@ -518,7 +501,7 @@ export const authRouter = createTRPCRouter({
 			if (!token) return { error: ErrorCode.InvalidToken };
 			try {
 				const secret = generateInstanceSecret(PASSWORD_RESET_SECRET);
-				const decoded = jwt.verify(token, secret) as { id: string; email: string };
+				const decoded = jwt.verify(token, secret) as PasswordResetPayload;
 
 				// add rate limit
 				try {
@@ -526,6 +509,7 @@ export const authRouter = createTRPCRouter({
 						ctx.res,
 						GENERAL_REQUEST_LIMIT,
 						RATE_LIMIT_TOKENS.VALIDATE_RESET_TOKEN,
+						token,
 					);
 				} catch {
 					throw new TRPCError({
@@ -539,9 +523,15 @@ export const authRouter = createTRPCRouter({
 						id: decoded.id,
 						email: decoded.email,
 					},
+					select: { email: true, hash: true },
 				});
 
-				if (!user) return { error: ErrorCode.InvalidToken };
+				if (
+					!user ||
+					!fingerprintMatches(decoded.passwordFingerprint, passwordFingerprint(user.hash))
+				) {
+					return { error: ErrorCode.InvalidToken };
+				}
 
 				return { email: user.email };
 			} catch (_error) {
@@ -564,6 +554,7 @@ export const authRouter = createTRPCRouter({
 					ctx.res,
 					SHORT_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.PASSWORD_RESET_LINK,
+					email,
 				);
 			} catch {
 				throw new TRPCError({
@@ -573,7 +564,7 @@ export const authRouter = createTRPCRouter({
 			}
 			if (!email) throwError("Email is required!");
 
-			let user = await ctx.prisma.user.findFirst({
+			const user = await ctx.prisma.user.findFirst({
 				where: {
 					email: {
 						equals: email,
@@ -582,47 +573,43 @@ export const authRouter = createTRPCRouter({
 				},
 			});
 
-			if (!user) return "Mail sent if email exist!";
-			if (user.email !== email) {
-				user = await ctx.prisma.user.update({
-					where: { id: user.id },
-					data: { email },
-				});
-			}
+			const response = { message: "If the email exists, a reset link has been sent." };
+			// Keep all existing-account-only work out of the public request path. The
+			// caller gets the same response without waiting for SMTP or token creation.
+			setImmediate(() => {
+				if (!user) return;
+				void Promise.resolve()
+					.then(async () => {
+						const deliveryUser =
+							user.email === email
+								? user
+								: await ctx.prisma.user.update({
+										where: { id: user.id },
+										data: { email },
+									});
+						const secret = generateInstanceSecret(PASSWORD_RESET_SECRET);
+						const validationToken = jwt.sign(
+							{
+								id: deliveryUser.id,
+								email: deliveryUser.email,
+								passwordFingerprint: passwordFingerprint(deliveryUser.hash),
+							},
+							secret,
+							{ expiresIn: "15m" },
+						);
+						const resetLink = `${process.env.NEXTAUTH_URL}/auth/forgotPassword/reset?token=${validationToken}`;
+						await sendMailWithTemplate(MailTemplateKey.ForgotPassword, {
+							to: email,
+							userId: deliveryUser.id,
+							templateData: { toEmail: email, forgotLink: resetLink },
+						});
+					})
+					.catch((error) => {
+						console.error("Failed to send password reset email:", error);
+					});
+			});
 
-			const secret = generateInstanceSecret(PASSWORD_RESET_SECRET);
-			const validationToken = jwt.sign(
-				{
-					id: user.id,
-					email: user.email,
-				},
-				secret,
-				{
-					expiresIn: "15m",
-				},
-			);
-
-			const resetLink = `${process.env.NEXTAUTH_URL}/auth/forgotPassword/reset?token=${validationToken}`;
-			// Send email
-			try {
-				await sendMailWithTemplate(MailTemplateKey.ForgotPassword, {
-					to: email,
-					userId: user.id,
-					templateData: {
-						toEmail: email,
-						forgotLink: resetLink,
-						// Add any other fields that might be used in the template
-					},
-				});
-			} catch (error) {
-				console.error("Failed to send password reset email:", error);
-				throw new TRPCError({
-					code: "INTERNAL_SERVER_ERROR",
-					message: "Failed to send reset email. Please try again later.",
-				});
-			}
-
-			return { message: "If the email exists, a reset link has been sent." };
+			return response;
 		}),
 
 	changePasswordFromJwt: publicProcedure
@@ -640,6 +627,7 @@ export const authRouter = createTRPCRouter({
 					ctx.res,
 					SHORT_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.CHANGE_PASSWORD,
+					token,
 				);
 			} catch {
 				throw new TRPCError({
@@ -653,42 +641,42 @@ export const authRouter = createTRPCRouter({
 			if (password !== newPassword) throwError("Passwords does not match!");
 
 			try {
-				interface IJwt {
-					id: string;
-					token: string;
-				}
-				const { id } = jwt.decode(token) as IJwt;
-
-				if (!id) throwError("This link is not valid!");
-
-				const user = await ctx.prisma.user.findFirst({
-					where: {
-						id,
-					},
-				});
-
-				if (!user) throwError("Something went wrong!");
 				const secret = generateInstanceSecret(PASSWORD_RESET_SECRET);
-				jwt.verify(token, secret);
-
+				const decoded = jwt.verify(token, secret) as PasswordResetPayload;
 				const newHash = bcrypt.hashSync(password, 10);
+				await ctx.prisma.$transaction(async (transaction) => {
+					await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`password-reset:${decoded.id}`}))`;
+					const user = await transaction.user.findFirst({
+						where: {
+							id: decoded.id,
+							email: decoded.email,
+						},
+						select: { id: true, hash: true },
+					});
 
-				const updated = await ctx.prisma.user.update({
-					where: {
-						id,
-					},
-					data: {
-						hash: newHash,
-						// Forced-reset implies the user just remembered/picked a fresh password —
-						// clear the must-change-on-next-login flag if it was set.
-						requestChangePassword: false,
-					},
+					if (
+						!user ||
+						!fingerprintMatches(
+							decoded.passwordFingerprint,
+							passwordFingerprint(user.hash),
+						)
+					) {
+						throwError("This link is not valid!");
+					}
+
+					await transaction.user.update({
+						where: { id: user.id },
+						data: { hash: newHash, requestChangePassword: false },
+					});
+					await upsertCredentialAccount(user.id, newHash, transaction);
+					await transaction.session.deleteMany({ where: { userId: user.id } });
+					await transaction.aPIToken.updateMany({
+						where: { userId: user.id, isActive: true },
+						data: { isActive: false },
+					});
 				});
 
-				// Mirror into the better-auth credential Account so /sign-in/email succeeds.
-				await upsertCredentialAccount(id, newHash, ctx.prisma);
-
-				return updated;
+				return { success: true };
 			} catch (error) {
 				console.error(error);
 				throwError("token is not valid, please try again!");
@@ -701,6 +689,7 @@ export const authRouter = createTRPCRouter({
 				ctx.res,
 				SHORT_REQUEST_LIMIT,
 				RATE_LIMIT_TOKENS.SEND_EMAIL_VERIFICATION,
+				ctx.session.user.id,
 			);
 		} catch {
 			throw new TRPCError({
@@ -763,6 +752,7 @@ export const authRouter = createTRPCRouter({
 					ctx.res,
 					SHORT_REQUEST_LIMIT,
 					RATE_LIMIT_TOKENS.EMAIL_VERIFICATION_LINK,
+					input.token,
 				);
 			} catch {
 				throw new TRPCError({
@@ -827,7 +817,7 @@ export const authRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return await ctx.prisma.user.update({
+			await ctx.prisma.user.update({
 				where: { id: ctx.session.user.id },
 				data: {
 					options: {
@@ -837,7 +827,9 @@ export const authRouter = createTRPCRouter({
 						},
 					},
 				},
+				select: { id: true },
 			});
+			return { status: "success" as const };
 		}),
 	setZtApi: protectedProcedure
 		.input(
@@ -866,8 +858,8 @@ export const authRouter = createTRPCRouter({
 						},
 					},
 				},
-				include: {
-					options: true,
+				select: {
+					options: { select: { ztCentralApiKey: true } },
 				},
 			});
 
@@ -884,7 +876,7 @@ export const authRouter = createTRPCRouter({
 				}
 			}
 
-			return updated;
+			return { status: "success" as const };
 		}),
 	setLocalZt: protectedProcedure
 		.input(
@@ -906,7 +898,8 @@ export const authRouter = createTRPCRouter({
 				: "http://127.0.0.1:9993";
 
 			// we use upsert in case the user has no options yet
-			const updated = await ctx.prisma.user.update({
+			const normalizedLocalControllerUrl = input.localControllerUrl?.trim();
+			await ctx.prisma.user.update({
 				where: {
 					id: ctx.session.user.id,
 				},
@@ -914,22 +907,29 @@ export const authRouter = createTRPCRouter({
 					options: {
 						upsert: {
 							create: {
-								localControllerUrl: input.localControllerUrl || defaultLocalZtUrl,
-								localControllerSecret: input.localControllerSecret,
+								localControllerUrl: normalizedLocalControllerUrl || defaultLocalZtUrl,
+								...(input.localControllerSecret !== undefined
+									? { localControllerSecret: input.localControllerSecret }
+									: {}),
 							},
 							update: {
-								localControllerUrl: input.localControllerUrl || defaultLocalZtUrl,
-								localControllerSecret: input.localControllerSecret,
+								...(input.localControllerUrl !== undefined
+									? {
+											localControllerUrl:
+												normalizedLocalControllerUrl || defaultLocalZtUrl,
+										}
+									: {}),
+								...(input.localControllerSecret !== undefined
+									? { localControllerSecret: input.localControllerSecret }
+									: {}),
 							},
 						},
 					},
 				},
-				include: {
-					options: true,
-				},
+				select: { id: true },
 			});
 
-			return updated;
+			return { status: "success" as const };
 		}),
 	getApiToken: protectedProcedure.query(async ({ ctx }) => {
 		const tokens = await ctx.prisma.aPIToken.findMany({
@@ -939,19 +939,28 @@ export const authRouter = createTRPCRouter({
 			orderBy: {
 				createdAt: "asc",
 			},
+			select: {
+				id: true,
+				name: true,
+				apiAuthorizationType: true,
+				createdAt: true,
+				expiresAt: true,
+				isActive: true,
+			},
 		});
 
-		// if expiresAt is < now, set isActive to false. use for of loop to avoid async issues
+		const now = new Date();
 		for (const token of tokens) {
-			if (token.expiresAt) {
+			if (token.expiresAt && token.expiresAt <= now && token.isActive) {
 				await ctx.prisma.aPIToken.update({
 					where: {
 						id: token.id,
 					},
 					data: {
-						isActive: token.expiresAt > new Date(),
+						isActive: false,
 					},
 				});
+				token.isActive = false;
 			}
 		}
 		return tokens;
@@ -975,46 +984,43 @@ export const authRouter = createTRPCRouter({
 					expiresAt = null; // Token never expires
 				}
 
-				// token factory
-				const tokenContent = JSON.stringify({
-					userId: ctx.session.user.id,
-					apiAuthorizationType: input.apiAuthorizationType,
-				});
-
-				// hash token
-				const tokenHash = encrypt(tokenContent, generateInstanceSecret(API_TOKEN_SECRET));
-
-				// store token in database with tokenHash
-				const token = await ctx.prisma.aPIToken.create({
-					data: {
-						token: tokenHash,
-						name: input.name,
-						apiAuthorizationType: input.apiAuthorizationType,
+				const createToken = async (transaction: Prisma.TransactionClient) => {
+					const tokenContent = JSON.stringify({
 						userId: ctx.session.user.id,
-						expiresAt,
-					},
-				});
+						apiAuthorizationType: input.apiAuthorizationType,
+					});
+					const placeholder = encrypt(
+						tokenContent,
+						generateInstanceSecret(API_TOKEN_SECRET),
+					);
+					const token = await transaction.aPIToken.create({
+						data: {
+							token: hashApiToken(placeholder),
+							name: input.name,
+							apiAuthorizationType: input.apiAuthorizationType,
+							userId: ctx.session.user.id,
+							expiresAt,
+						},
+					});
 
-				// Add the database token ID to the token hash for reference
-				const tokenId = token.id.toString(); // Just in case the token id is not a string ( old db structure )
-				const tokenWithIdContent = JSON.stringify({
-					...JSON.parse(tokenContent),
-					tokenId,
-				});
+					const bearerToken = encrypt(
+						JSON.stringify({
+							...JSON.parse(tokenContent),
+							tokenId: token.id.toString(),
+						}),
+						generateInstanceSecret(API_TOKEN_SECRET),
+					);
+					const updatedToken = await transaction.aPIToken.update({
+						where: { id: token.id },
+						data: { token: hashApiToken(bearerToken) },
+					});
 
-				// hash token with token id
-				const tokenWithIdHash = encrypt(
-					tokenWithIdContent,
-					generateInstanceSecret(API_TOKEN_SECRET),
-				);
+					return { ...updatedToken, token: bearerToken };
+				};
 
-				// Update the token in the database with the new hash that includes the tokenId
-				const updatedToken = await ctx.prisma.aPIToken.update({
-					where: { id: token.id },
-					data: { token: tokenWithIdHash },
-				});
-
-				return updatedToken;
+				return typeof ctx.prisma.$transaction === "function"
+					? await ctx.prisma.$transaction(createToken)
+					: await createToken(ctx.prisma as unknown as Prisma.TransactionClient);
 			} catch (error) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
@@ -1030,12 +1036,14 @@ export const authRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return await ctx.prisma.aPIToken.delete({
+			await ctx.prisma.aPIToken.delete({
 				where: {
 					id: input.id.toString(),
 					userId: ctx.session.user.id,
 				},
+				select: { id: true },
 			});
+			return { status: "success" as const };
 		}),
 	deleteUserDevice: protectedProcedure
 		.input(

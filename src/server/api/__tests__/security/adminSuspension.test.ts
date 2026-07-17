@@ -9,6 +9,7 @@ jest.mock("~/server/socketRegistry", () => ({ disconnectUserSockets: jest.fn() }
 import type { Session } from "~/lib/authTypes";
 import { adminRouter } from "~/server/api/routers/adminRoute";
 import { disconnectUserSockets } from "~/server/socketRegistry";
+import jwt from "jsonwebtoken";
 
 const session = {
 	expires: "2099-01-01T00:00:00.000Z",
@@ -62,6 +63,7 @@ test("administrator suspension immediately revokes every access path", async () 
 	expect(harness.userUpdate).toHaveBeenCalledWith({
 		where: { id: "user-1" },
 		data: { isActive: false, suspensionReason: "ADMIN" },
+		select: { id: true },
 	});
 	expect(harness.sessionDeleteMany).toHaveBeenCalledWith({
 		where: { userId: "user-1" },
@@ -82,6 +84,7 @@ test("administrator reactivation does not silently reactivate old API tokens", a
 	expect(harness.userUpdate).toHaveBeenCalledWith({
 		where: { id: "user-1" },
 		data: { isActive: true, suspensionReason: "NONE" },
+		select: { id: true },
 	});
 	expect(harness.sessionDeleteMany).not.toHaveBeenCalled();
 	expect(harness.tokenUpdateMany).not.toHaveBeenCalled();
@@ -160,4 +163,54 @@ test("administrator settings responses expose only Alipay key states", async () 
 		} as never),
 	).rejects.toThrow();
 	expect(globalOptions.update).toHaveBeenCalledTimes(1);
+});
+
+test("site invitation links do not contain the out-of-band code", async () => {
+	const previousSecret = process.env.NEXTAUTH_SECRET;
+	const previousUrl = process.env.NEXTAUTH_URL;
+	process.env.NEXTAUTH_SECRET = "test-invitation-signing-secret";
+	process.env.NEXTAUTH_URL = "https://ztnet.example";
+	const invitationCreate = jest.fn(async ({ data }) => ({ id: 1, ...data }));
+	const caller = adminRouter.createCaller({
+		session,
+		prisma: {
+			user: {
+				findUnique: jest.fn(async () => ({
+					id: "admin-1",
+					role: "ADMIN",
+					isActive: true,
+					suspensionReason: "NONE",
+					expiresAt: null,
+				})),
+			},
+			invitation: { create: invitationCreate },
+		},
+		wss: null,
+		res: null,
+	} as never);
+
+	try {
+		const token = await caller.generateInviteLink({
+			secret: "separate-invitation-code",
+			expireTime: "15",
+		});
+		const payload = jwt.decode(token) as Record<string, unknown>;
+
+		expect(payload).toMatchObject({ purpose: "site-invitation" });
+		expect(payload).not.toHaveProperty("secret");
+		expect(invitationCreate).toHaveBeenCalledWith({
+			data: expect.objectContaining({
+				secret: "separate-invitation-code",
+				token,
+				url: `https://ztnet.example/locale-redirect?invite=${token}`,
+			}),
+		});
+	} finally {
+		// biome-ignore lint/performance/noDelete: the test must restore a genuinely absent variable
+		if (previousSecret === undefined) delete process.env.NEXTAUTH_SECRET;
+		else process.env.NEXTAUTH_SECRET = previousSecret;
+		// biome-ignore lint/performance/noDelete: the test must restore a genuinely absent variable
+		if (previousUrl === undefined) delete process.env.NEXTAUTH_URL;
+		else process.env.NEXTAUTH_URL = previousUrl;
+	}
 });

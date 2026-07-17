@@ -2,10 +2,8 @@
  * Tests for the better-auth `databaseHooks` we wire up in `src/lib/auth.ts`.
  *
  * These hooks are the migration's main correctness boundary:
- *   - `onUserCreateBefore` enforces OAUTH_ALLOW_NEW_USERS and the global
- *     `enableRegistration` toggle for OAuth-triggered user creation. Pre-migration
- *     this lived in next-auth's signin callback; the new hook needs to behave
- *     identically.
+ *   - `onUserCreateBefore` enforces OAUTH_ALLOW_NEW_USERS for OAuth and the global
+ *     `enableRegistration` toggle for every direct Better Auth user-creation path.
  *   - `onSessionCreated` enforces `isActive`, per-user expiry, and per-userGroup
  *     expiry for EVERY sign-in (credential AND OAuth). Pre-migration this was on
  *     the credential authorize() path only and was missing from OAuth — those
@@ -48,6 +46,9 @@ beforeEach(() => {
 	jest.clearAllMocks();
 	process.env = { ...ENV_BACKUP };
 	process.env.NEXTAUTH_URL = "https://ztnet.example";
+	(prisma.globalOptions.findFirst as jest.Mock).mockResolvedValue({
+		enableRegistration: true,
+	});
 });
 
 afterAll(() => {
@@ -62,6 +63,7 @@ describe("onUserCreateBefore", () => {
 	const baseUser = { id: "u1", email: "new@example.com", name: "New User" };
 
 	it("stamps role=ADMIN on the very first user (userCount=0)", async () => {
+		process.env.INITIAL_ADMIN_EMAIL = "new@example.com";
 		(prisma.user.count as jest.Mock).mockResolvedValue(0);
 		(prisma.userGroup.findFirst as jest.Mock).mockResolvedValue(null);
 
@@ -69,6 +71,17 @@ describe("onUserCreateBefore", () => {
 		expect(result.data.role).toBe("ADMIN");
 		expect(result.data.firstTime).toBe(true);
 		expect(result.data.isActive).toBe(true);
+	});
+
+	it("rejects direct first-user creation without the configured bootstrap email", async () => {
+		// biome-ignore lint/performance/noDelete: the hook must observe a genuinely absent variable
+		delete process.env.INITIAL_ADMIN_EMAIL;
+		(prisma.user.count as jest.Mock).mockResolvedValue(0);
+		(prisma.userGroup.findFirst as jest.Mock).mockResolvedValue(null);
+
+		await expect(
+			onUserCreateBefore(baseUser, { path: "/sign-up/email" }),
+		).rejects.toThrow(/initial_admin_setup_required/);
 	});
 
 	it("stamps role=USER for subsequent users", async () => {
@@ -100,7 +113,9 @@ describe("onUserCreateBefore", () => {
 	});
 
 	describe("OAuth flow gating", () => {
-		const oauthCtx = { path: "/oauth2/callback/oauth" };
+		// Better Auth passes the endpoint pattern, not the concrete provider path,
+		// into database hooks.
+		const oauthCtx = { path: "/callback/:id" };
 
 		it("blocks new OAuth users when OAUTH_ALLOW_NEW_USERS=false", async () => {
 			process.env.OAUTH_ALLOW_NEW_USERS = "false";
@@ -148,10 +163,18 @@ describe("onUserCreateBefore", () => {
 			expect(prisma.globalOptions.findFirst).not.toHaveBeenCalled();
 		});
 
-		it("does NOT enforce OAuth gating on email sign-up paths", async () => {
-			// The tRPC `register` procedure handles email registration with its own
-			// enableRegistration guard; better-auth's user-create hook should not
-			// double-gate it from the credential flow.
+		it("blocks direct email sign-up when global registration is off", async () => {
+			(prisma.globalOptions.findFirst as jest.Mock).mockResolvedValue({
+				enableRegistration: false,
+			});
+
+			await expect(
+				onUserCreateBefore(baseUser, { path: "/sign-up/email" }),
+			).rejects.toThrow(/registration_disabled/);
+			expect(prisma.user.count).not.toHaveBeenCalled();
+		});
+
+		it("does not apply the OAuth-only flag to an allowed email sign-up", async () => {
 			process.env.OAUTH_ALLOW_NEW_USERS = "false";
 			(prisma.user.count as jest.Mock).mockResolvedValue(3);
 			(prisma.userGroup.findFirst as jest.Mock).mockResolvedValue(null);
@@ -227,7 +250,7 @@ describe("onSessionCreated", () => {
 			isActive: false,
 		});
 		const ctx = makeCtx();
-		ctx.path = "/oauth2/callback/oauth";
+		ctx.path = "/callback/:id";
 		await expect(onSessionCreated("u1", ctx)).rejects.toThrow(/account-expired/);
 	});
 

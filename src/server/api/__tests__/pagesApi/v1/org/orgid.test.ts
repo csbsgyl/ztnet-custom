@@ -25,6 +25,7 @@ jest.mock("~/server/db", () => ({
 			}),
 		},
 		aPIToken: {
+			update: jest.fn(),
 			findUnique: jest.fn().mockResolvedValue({
 				expiresAt: new Date(Date.now() + 100000).toISOString(), // Simulate a future expiration
 				token: "testToken",

@@ -1,251 +1,262 @@
-import { NextApiRequest, NextApiResponse } from "next";
+import type { NextApiRequest, NextApiResponse } from "next";
 import createUserHandler from "~/pages/api/v1/user";
-import { prisma } from "~/server/db";
 import { appRouter } from "~/server/api/root";
-import { API_TOKEN_SECRET, encrypt, generateInstanceSecret } from "~/utils/encryption";
+import { createTRPCContext } from "~/server/api/trpc";
+import { prisma } from "~/server/db";
 import { AuthorizationType } from "~/types/apiTypes";
-import { decryptAndVerifyToken } from "~/utils/encryption";
+import {
+	API_TOKEN_SECRET,
+	decryptAndVerifyToken,
+	encrypt,
+	generateInstanceSecret,
+	hashApiToken,
+} from "~/utils/encryption";
 
 jest.mock("~/server/api/root", () => ({
-	appRouter: {
-		createCaller: jest.fn(() => ({
-			auth: {
-				// Mock the mutation method used in your authRouter
-				register: jest.fn().mockImplementation(() => ({
-					mutation: jest.fn().mockResolvedValue({}),
-				})),
-			},
-		})),
-	},
+	appRouter: { createCaller: jest.fn() },
 }));
+
 jest.mock("~/utils/rateLimit", () => ({
 	__esModule: true,
-	default: () => ({
-		check: jest.fn().mockResolvedValue(true),
-	}),
+	default: () => ({ check: jest.fn().mockResolvedValue(undefined) }),
 	RATE_LIMIT_CONFIG: {
 		API_WINDOW_MS: 60 * 1000,
 		API_MAX_REQUESTS: 50,
 	},
 }));
-jest.mock("~/server/api/trpc");
+
+jest.mock("~/server/api/trpc", () => ({
+	createTRPCContext: jest.fn(),
+}));
 
 jest.mock("~/server/db", () => ({
 	prisma: {
+		$executeRaw: jest.fn(),
+		$transaction: jest.fn(),
 		user: {
 			count: jest.fn(),
-			create: jest.fn(),
-			findUnique: jest.fn().mockResolvedValue({
-				id: "userId",
-				role: "ADMIN",
-				apiTokens: [
-					{
-						// Assuming your actual `apiTokens` structure looks something like this
-						token: "testToken",
-						tokenId: "testTokenId",
-						expiresAt: new Date(Date.now() + 100000).toISOString(), // Simulate a future expiration
-					},
-				],
-			}),
+			findUnique: jest.fn(),
 		},
 		aPIToken: {
-			findUnique: jest.fn().mockResolvedValue({
-				expiresAt: new Date(Date.now() + 100000).toISOString(), // Simulate a future expiration
-				token: "testToken",
-				tokenId: "testTokenId",
-			}),
+			findUnique: jest.fn(),
+			update: jest.fn(),
 		},
 	},
 }));
 
+const createCaller = appRouter.createCaller as jest.Mock;
+const createContext = createTRPCContext as jest.Mock;
+
+const registeredUser = {
+	id: "new-user-id",
+	name: "ZTNET User",
+	email: "user@example.com",
+	role: "USER",
+	expiresAt: null,
+	memberOfOrgs: [],
+};
+
+function response(): NextApiResponse {
+	return {
+		status: jest.fn().mockReturnThis(),
+		json: jest.fn().mockReturnThis(),
+		end: jest.fn(),
+		setHeader: jest.fn(),
+	} as unknown as NextApiResponse;
+}
+
+function request(overrides: Partial<NextApiRequest> = {}): NextApiRequest {
+	return {
+		method: "POST",
+		headers: {},
+		query: {},
+		body: {
+			email: "user@example.com",
+			password: "StrongPass123!",
+			name: "ZTNET User",
+		},
+		...overrides,
+	} as unknown as NextApiRequest;
+}
+
+function validApiKey(client: typeof prisma = prisma): string {
+	const apiKey = encrypt(
+		JSON.stringify({
+			userId: "admin-id",
+			tokenId: "token-id",
+			apiAuthorizationType: [AuthorizationType.PERSONAL],
+		}),
+		generateInstanceSecret(API_TOKEN_SECRET),
+	);
+	(client.aPIToken.findUnique as jest.Mock).mockResolvedValue({
+		token: hashApiToken(apiKey),
+		isActive: true,
+		expiresAt: new Date(Date.now() + 60_000),
+	});
+	(client.user.findUnique as jest.Mock).mockResolvedValue({
+		id: "admin-id",
+		role: "ADMIN",
+		isActive: true,
+		suspensionReason: "NONE",
+		expiresAt: null,
+	});
+	return apiKey;
+}
+
 describe("createUserHandler", () => {
-	let mockRequest: Partial<NextApiRequest>;
-	let mockResponse: Partial<NextApiResponse>;
-
-	// biome-ignore lint/correctness/noUnusedVariables: <explanation>
-	let jsonResponse: string;
-	// biome-ignore lint/correctness/noUnusedVariables: <explanation>
-	let statusCode: number;
-
 	beforeEach(() => {
-		jsonResponse = null;
-		statusCode = null;
-		mockRequest = {
-			headers: {},
-			body: {},
-		};
-		mockResponse = {
-			status: jest.fn().mockReturnThis(),
-			json: jest.fn((result) => {
-				jsonResponse = result;
-				return mockResponse;
-			}),
-		};
-	});
-	afterEach(() => {
-		// Restores all mocks back to their original value.
-		// only works when the mock was created with jest.spyOn;
-		jest.restoreAllMocks();
-	});
-	// Helper function to create a mock response object
-	const createMockRes = () =>
-		({
-			status: jest.fn().mockReturnThis(),
-			json: jest.fn(),
-			end: jest.fn(),
-			setHeader: jest.fn(),
-		}) as unknown as NextApiResponse;
-
-	it('should throw "Invalid Authorization Type" for mismatched authorization types', async () => {
-		// Mock encrypted token string and secret to return a specific payload that simulates mismatched authorization type
-		const requireAdmin = false;
-		const apiAuthorizationType = AuthorizationType.PERSONAL;
-
-		// Mock decrypt function to return a payload that simulates a mismatched authorization type
-		const tokendata = JSON.stringify({
-			userId: "testUserId",
-			tokenId: "testTokenId",
-			apiAuthorizationType: ["ORGANIZATION"],
-		});
-
-		const tokenWithIdHash = encrypt(tokendata, generateInstanceSecret(API_TOKEN_SECRET));
-
-		try {
-			await decryptAndVerifyToken({
-				apiKey: tokenWithIdHash,
-				requireAdmin,
-				apiAuthorizationType,
-			});
-		} catch (error) {
-			expect(error.message).toBe("Invalid Authorization Type");
-		}
-	});
-
-	test("Allow creating new user if user count is 0", async () => {
-		prisma.user.count = jest.fn().mockResolvedValue(0);
-		// mock prisma transaction
-		prisma.$transaction = jest
-			.fn()
-			.mockResolvedValue({ id: "newUserId", name: "Ztnet", email: "post@ztnet.network" });
-
-		// Mocking the decryptAndVerifyToken function to throw an error for the test case
-		jest.mock("~/utils/encryption", () => ({
-			decryptAndVerifyToken: jest.fn().mockImplementation(() => {
-				throw new Error("Invalid Authorization Type");
-			}),
-		}));
-
-		mockRequest.method = "POST";
-		mockRequest.headers["x-ztnet-auth"] = "not defined";
-		mockRequest.body = {
-			email: "ztnet@example.com",
-			password: "password123",
-			name: "Ztnet",
-		};
-
-		await createUserHandler(
-			mockRequest as NextApiRequest,
-			mockResponse as NextApiResponse,
+		jest.clearAllMocks();
+		(prisma.$executeRaw as jest.Mock).mockResolvedValue(0);
+		(prisma.$transaction as jest.Mock).mockImplementation(
+			async (operation: (transaction: typeof prisma) => unknown) => operation(prisma),
 		);
-
-		expect(mockResponse.status).toHaveBeenCalledWith(200);
-
-		// Check if the response is as expected
-		expect(mockResponse.json).toHaveBeenCalledWith({
-			id: "newUserId",
-			name: "Ztnet",
-			email: "post@ztnet.network",
+		(prisma.user.count as jest.Mock).mockResolvedValue(0);
+		createContext.mockResolvedValue({
+			session: null,
+			wss: null,
+			prisma,
+		});
+		createCaller.mockReturnValue({
+			auth: {
+				register: jest.fn().mockResolvedValue({ user: registeredUser }),
+				addApiToken: jest.fn().mockResolvedValue({ token: "one-time-bearer" }),
+			},
 		});
 	});
 
-	it("should create a user successfully", async () => {
-		prisma.user.count = jest.fn().mockResolvedValue(10);
-
-		// mock prisma transaction
-		prisma.$transaction = jest.fn().mockResolvedValue({ id: "newUserId" });
-
-		// Mock decrypt function to return a payload that simulates a mismatched authorization type
-		const decryptedTokenData = JSON.stringify({
-			userId: "testUserId",
-			tokenId: "testTokenId",
-			apiAuthorizationType: ["PERSONAL"],
-		});
-
-		const tokenWithIdHash = encrypt(
-			decryptedTokenData,
+	it("rejects mismatched API authorization types", async () => {
+		const apiKey = encrypt(
+			JSON.stringify({
+				userId: "admin-id",
+				tokenId: "token-id",
+				apiAuthorizationType: [AuthorizationType.ORGANIZATION],
+			}),
 			generateInstanceSecret(API_TOKEN_SECRET),
 		);
-		prisma.aPIToken.findUnique = jest.fn().mockResolvedValue({
-			token: tokenWithIdHash,
-			isActive: true,
-			expiresAt: new Date(Date.now() + 100_000),
-		});
 
-		const mockRegister = jest.fn().mockResolvedValue({ id: "newUserId" });
-		appRouter.createCaller = jest
-			.fn()
-			.mockReturnValue({ auth: { register: mockRegister } });
+		await expect(
+			decryptAndVerifyToken({
+				apiKey,
+				requireAdmin: false,
+				apiAuthorizationType: AuthorizationType.PERSONAL,
+			}),
+		).rejects.toThrow("Invalid Authorization Type");
+	});
 
-		const req = {
-			method: "POST",
-			headers: { "x-ztnet-auth": tokenWithIdHash },
-			body: { email: "test@example.com", password: "password123", name: "Test User" },
-			query: {},
-		} as unknown as NextApiRequest;
-
-		const res = {
-			status: jest.fn().mockReturnThis(),
-			json: jest.fn(),
-			end: jest.fn(),
-			setHeader: jest.fn(),
-		} as unknown as NextApiResponse;
+	it("creates the first user without an API token after acquiring the registration lock", async () => {
+		const req = request();
+		const res = response();
 
 		await createUserHandler(req, res);
 
 		expect(res.status).toHaveBeenCalledWith(200);
-		expect(res.json).toHaveBeenCalledWith({ id: "newUserId" });
+		expect(res.json).toHaveBeenCalledWith({
+			user: registeredUser,
+			apiToken: undefined,
+		});
+		expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+		expect(prisma.aPIToken.findUnique).not.toHaveBeenCalled();
+		expect((prisma.$executeRaw as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+			(prisma.user.count as jest.Mock).mock.invocationCallOrder[0],
+		);
 	});
 
-	it("should respond 401 when decryptAndVerifyToken fails", async () => {
-		prisma.user.count = jest.fn().mockResolvedValue(1);
+	it("authenticates an existing-user request inside the locked transaction", async () => {
+		const transactionPrisma = {
+			...prisma,
+			$executeRaw: jest.fn().mockResolvedValue(0),
+			user: {
+				...prisma.user,
+				count: jest.fn().mockResolvedValue(10),
+				findUnique: jest.fn(),
+			},
+			aPIToken: {
+				...prisma.aPIToken,
+				findUnique: jest.fn(),
+				update: jest.fn(),
+			},
+		} as unknown as typeof prisma;
+		(prisma.$transaction as jest.Mock).mockImplementation(
+			async (operation: (transaction: typeof prisma) => unknown) =>
+				operation(transactionPrisma),
+		);
+		const apiKey = validApiKey(transactionPrisma);
+		const req = request({ headers: { "x-ztnet-auth": apiKey } });
+		const res = response();
 
-		// mock prisma transaction
-		prisma.$transaction = jest.fn().mockResolvedValue({ id: "newUserId" });
+		await createUserHandler(req, res);
 
-		const req = {
-			method: "POST",
-			headers: { "x-ztnet-auth": "invalidApiKey" },
-			query: { id: "networkId" },
-		} as unknown as NextApiRequest;
+		expect(res.status).toHaveBeenCalledWith(200);
+		expect(transactionPrisma.aPIToken.findUnique).toHaveBeenCalledTimes(1);
+		expect(transactionPrisma.user.findUnique).toHaveBeenCalledWith(
+			expect.objectContaining({ where: { id: "admin-id" } }),
+		);
+		expect(prisma.aPIToken.findUnique).not.toHaveBeenCalled();
+		expect(prisma.user.findUnique).not.toHaveBeenCalled();
+		expect(
+			(transactionPrisma.$executeRaw as jest.Mock).mock.invocationCallOrder[0],
+		).toBeLessThan(
+			(transactionPrisma.user.count as jest.Mock).mock.invocationCallOrder[0],
+		);
+	});
 
-		const res = {
-			status: jest.fn().mockReturnThis(),
-			json: jest.fn(),
-			end: jest.fn(),
-			setHeader: jest.fn(), // Mock `setHeader` if rate limiter uses it
-		} as unknown as NextApiResponse;
+	it("returns 401 before registration when an existing-user API token is invalid", async () => {
+		(prisma.user.count as jest.Mock).mockResolvedValue(1);
+		const req = request({ headers: { "x-ztnet-auth": "invalid-api-key" } });
+		const res = response();
 
 		await createUserHandler(req, res);
 
 		expect(res.status).toHaveBeenCalledWith(401);
 		expect(res.json).toHaveBeenCalledWith({ error: "Invalid token" });
+		expect(createCaller).not.toHaveBeenCalled();
 	});
 
-	it("should allow only POST method", async () => {
-		const methods = ["GET", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"];
-		const req = {
-			query: {},
-		} as NextApiRequest;
-		const res = createMockRes();
+	it("keeps expiresAt forbidden for the first administrator", async () => {
+		const req = request({
+			body: {
+				email: "user@example.com",
+				password: "StrongPass123!",
+				name: "ZTNET User",
+				expiresAt: "2027-01-01T00:00:00.000Z",
+			},
+		});
+		const res = response();
 
-		for (const method of methods) {
-			req.method = method;
-			await createUserHandler(req, res);
+		await createUserHandler(req, res);
 
+		expect(res.status).toHaveBeenCalledWith(400);
+		expect(res.json).toHaveBeenCalledWith({
+			error: "Cannot add expiresAt for Admin user!",
+		});
+	});
+
+	it("returns a generated API token to the caller", async () => {
+		const req = request({
+			body: {
+				email: "user@example.com",
+				password: "StrongPass123!",
+				name: "ZTNET User",
+				generateApiToken: true,
+			},
+		});
+		const res = response();
+
+		await createUserHandler(req, res);
+
+		expect(res.status).toHaveBeenCalledWith(200);
+		expect(res.json).toHaveBeenCalledWith({
+			user: registeredUser,
+			apiToken: "one-time-bearer",
+		});
+	});
+
+	it("allows only POST", async () => {
+		for (const method of ["GET", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]) {
+			const res = response();
+			await createUserHandler(request({ method }), res);
 			expect(res.status).toHaveBeenCalledWith(405);
-			expect(res.json).toHaveBeenCalledWith(
-				expect.objectContaining({ error: "Method Not Allowed" }),
-			);
+			expect(res.json).toHaveBeenCalledWith({ error: "Method Not Allowed" });
 		}
 	});
 });

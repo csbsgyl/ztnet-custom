@@ -2,12 +2,12 @@ import { createTRPCRouter, adminRoleProtectedRoute } from "~/server/api/trpc";
 import { z } from "zod";
 import * as ztController from "~/utils/ztApi";
 import { mailTemplateMap, sendMailWithTemplate } from "~/utils/mail";
-import { type GlobalOptions, Role } from "@prisma/client";
+import { type GlobalOptions, type PrismaClient, Role } from "@prisma/client";
 import { throwError } from "~/server/helpers/errorHandler";
 import type { ZTControllerNodeStatus } from "~/types/ztController";
 import type { NetworkAndMemberResponse } from "~/types/network";
 import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import type { WorldConfig } from "~/types/worldConfig";
 import axios from "axios";
@@ -39,9 +39,20 @@ import {
 import { planetEndpointSchema } from "~/server/planetArchive";
 import {
 	activatePreparedPlanet,
-	ensureOriginalPlanetBackup,
+	createPlanetDatabaseStateId,
+	PLANET_DATABASE_STATE_SELECT,
 	restoreOriginalPlanet,
+	snapshotPlanetSigningKeys,
 } from "~/server/planetFiles";
+
+async function readPlanetDatabaseStateId(prisma: PrismaClient): Promise<string> {
+	const options = await prisma.globalOptions.findUnique({
+		where: { id: 1 },
+		select: PLANET_DATABASE_STATE_SELECT,
+	});
+	if (!options) throw new Error("Global Planet options do not exist.");
+	return createPlanetDatabaseStateId(options);
+}
 
 type WithError<T> = T & { error?: boolean; message?: string };
 type GlobalOptionsResponse = WithError<
@@ -245,7 +256,7 @@ export const adminRouter = createTRPCRouter({
 				throwError("You can't change your own status");
 			}
 
-			const updated = await ctx.prisma.$transaction(async (transaction) => {
+			await ctx.prisma.$transaction(async (transaction) => {
 				const userLockKey = `billing-user:${input.id}`;
 				await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userLockKey}))`;
 				const user = await transaction.user.findUnique({
@@ -296,12 +307,13 @@ export const adminRouter = createTRPCRouter({
 					}
 				}
 
-				const result = await transaction.user.update({
+				await transaction.user.update({
 					where: { id: input.id },
 					data: {
 						isActive: input.params.isActive,
 						suspensionReason: input.params.isActive ? "NONE" : "ADMIN",
 					},
+					select: { id: true },
 				});
 				if (input.params.isActive === false) {
 					await transaction.session.deleteMany({ where: { userId: input.id } });
@@ -310,10 +322,9 @@ export const adminRouter = createTRPCRouter({
 						data: { isActive: false },
 					});
 				}
-				return result;
 			});
 			if (input.params.isActive === false) disconnectUserSockets(input.id);
-			return updated;
+			return { status: "success" as const };
 		}),
 	deleteUser: adminRoleProtectedRoute
 		.input(
@@ -370,14 +381,17 @@ export const adminRouter = createTRPCRouter({
 				await ztController.network_delete(targetUserContext, network.nwid, false);
 			}
 
-			const deletedUser = await ctx.prisma.$transaction(async (transaction) => {
+			await ctx.prisma.$transaction(async (transaction) => {
 				await transaction.verification.deleteMany({
 					where: { identifier: { in: [user.id, user.email] } },
 				});
-				return transaction.user.delete({ where: { id: input.id } });
+				return transaction.user.delete({
+					where: { id: input.id },
+					select: { id: true },
+				});
 			});
 			disconnectUserSockets(input.id);
-			return deletedUser;
+			return { status: "success" as const };
 		}),
 	createUser: adminRoleProtectedRoute
 		.input(
@@ -604,9 +618,16 @@ export const adminRouter = createTRPCRouter({
 		.mutation(async ({ ctx, input }) => {
 			const { secret, expireTime, timesCanUse, groupId } = input;
 
-			const token = jwt.sign({ secret }, process.env.NEXTAUTH_SECRET, {
-				expiresIn: `${expireTime}m`,
-			});
+			// Keep the out-of-band invitation code out of the link. JWT payloads are
+			// only encoded, not encrypted, so putting `secret` here exposed it to
+			// anyone who received the URL.
+			const token = jwt.sign(
+				{ purpose: "site-invitation", nonce: randomUUID() },
+				process.env.NEXTAUTH_SECRET,
+				{
+					expiresIn: `${expireTime}m`,
+				},
+			);
 			const url = `${process.env.NEXTAUTH_URL}/locale-redirect?invite=${token}`;
 
 			// Store the token, email, createdBy, and expiration in the UserInvitation table
@@ -758,12 +779,14 @@ export const adminRouter = createTRPCRouter({
 							role: role as Role,
 						};
 
-			return await ctx.prisma.user.update({
+			await ctx.prisma.user.update({
 				where: {
 					id,
 				},
 				data: updateData,
+				select: { id: true },
 			});
+			return { status: "success" as const };
 		}),
 	updateGlobalOptions: adminRoleProtectedRoute
 		.input(
@@ -1335,10 +1358,6 @@ export const adminRouter = createTRPCRouter({
 			// data.plBirth 1567191349589
 			let stagingDirectory: string | undefined;
 			try {
-				const mkworldDir = `${ZT_FOLDER}/zt-mkworld`;
-				const planetPath = `${ZT_FOLDER}/planet`;
-				const backupDir = `${ZT_FOLDER}/planet_backup`;
-
 				// Check for write permission on the directory
 				try {
 					fs.accessSync(/* turbopackIgnore: true */ ZT_FOLDER, fs.constants.W_OK);
@@ -1364,15 +1383,6 @@ export const adminRouter = createTRPCRouter({
 				if (!fs.existsSync(/* turbopackIgnore: true */ ztmkworldBinPath)) {
 					throwError("ztmkworld executable does not exist at the specified location.");
 				}
-				// Ensure /var/lib/zerotier-one/zt-mkworld directory exists
-				fs.mkdirSync(/* turbopackIgnore: true */ mkworldDir, {
-					recursive: true,
-					mode: 0o700,
-				});
-
-				ensureOriginalPlanetBackup(backupDir, planetPath);
-				// const identity = fs.readFileSync(`${ZT_FOLDER}/identity.public`, "utf-8").trim();
-
 				/*
 				 *
 				 * Mock the mkworld.config.json file and write it to the file system
@@ -1404,21 +1414,11 @@ export const adminRouter = createTRPCRouter({
 					JSON.stringify(config),
 					{ mode: 0o600 },
 				);
-				for (const keyName of ["current.c25519", "previous.c25519"]) {
-					const keyPath = path.join(/* turbopackIgnore: true */ mkworldDir, keyName);
-					if (
-						fs
-							.lstatSync(/* turbopackIgnore: true */ keyPath, {
-								throwIfNoEntry: false,
-							})
-							?.isFile()
-					) {
-						fs.copyFileSync(
-							/* turbopackIgnore: true */ keyPath,
-							path.join(/* turbopackIgnore: true */ stagingDirectory, keyName),
-						);
-					}
-				}
+				const expectedSigningStateId = await snapshotPlanetSigningKeys({
+					ztFolder: ZT_FOLDER,
+					stagedWorldDirectory: stagingDirectory,
+					readDatabaseStateId: () => readPlanetDatabaseStateId(ctx.prisma),
+				});
 
 				/*
 				 *
@@ -1460,8 +1460,21 @@ export const adminRouter = createTRPCRouter({
 				await activatePreparedPlanet({
 					ztFolder: ZT_FOLDER,
 					stagedWorldDirectory: stagingDirectory,
+					expectedSigningStateId,
 					ports: portNumbers,
 					updatePorts: updateLocalConf,
+					databaseStateId: createPlanetDatabaseStateId({
+						customPlanetUsed: true,
+						planet: {
+							plBirth: config.plBirth,
+							plID: config.plID,
+							plRecommend: config.plRecommend,
+							origin: "LOCAL_GENERATED",
+							downloadSha256,
+							rootNodes: config.rootNodes,
+						},
+					}),
+					readDatabaseStateId: () => readPlanetDatabaseStateId(ctx.prisma),
 					commitDatabase: () =>
 						ctx.prisma.$transaction(async (tx) => {
 							await tx.planet.upsert({
@@ -1517,6 +1530,11 @@ export const adminRouter = createTRPCRouter({
 			await restoreOriginalPlanet({
 				ztFolder: ZT_FOLDER,
 				updatePorts: updateLocalConf,
+				databaseStateId: createPlanetDatabaseStateId({
+					customPlanetUsed: false,
+					planet: null,
+				}),
+				readDatabaseStateId: () => readPlanetDatabaseStateId(ctx.prisma),
 				commitDatabase: () =>
 					ctx.prisma.$transaction(async (tx) => {
 						await tx.globalOptions.update({

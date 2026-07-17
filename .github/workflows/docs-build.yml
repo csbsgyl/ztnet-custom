@@ -18,8 +18,8 @@ jobs:
       run:
         working-directory: docs
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
         node-version: 22
         cache: npm
@@ -32,7 +32,7 @@ jobs:
     - name: Build website
       run: npm run build
     - name: Upload artifact
-      uses: actions/upload-pages-artifact@v2
+      uses: actions/upload-pages-artifact@a753861a5debcf57bf8b404356158c8e1e33150c # v2
       with:
         # Upload entire repository
         path: docs/build
@@ -50,4 +50,4 @@ jobs:
     steps:
     - name: Deploy to GitHub Pages 🚀
       id: deployment
-      uses: actions/deploy-pages@v2
+      uses: actions/deploy-pages@de14547edc9944350dc0481aa5b7afb08e75f254 # v2

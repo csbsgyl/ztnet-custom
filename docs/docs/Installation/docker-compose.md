@@ -2,193 +2,51 @@
 id: docker-compose
 title: Docker Compose
 slug: /installation/docker-compose
-description: Docker Compose installation instructions for ZTNET
+description: Secure Docker Compose installation instructions for ZTNET
 sidebar_position: 1
 ---
 
-## System Requirements
+## Secure installation for this fork
 
-Your system should meet the following minimum requirements:
+This fork uses a hardened deployment workflow. The only executable installation
+instructions are maintained in the repository's
+[one-click deployment guide](https://github.com/csbsgyl/ztnet-custom/blob/main/deploy/README.md#quick-start).
+That guide resolves an immutable Git commit, verifies the installer checksum,
+and runs the verified local file.
 
-- **Memory**: 1GB of RAM
-- **CPU**: 1 Core
+Do not use an installation command copied from an upstream release, a registry
+proxy, or an older version of this page.
 
-<center>
-  <iframe width="560" height="315" src="https://www.youtube.com/embed/itzkpfBC58w?si=nYEKfTajRoKX4UWn" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-</center>
+### Security baseline
 
-# Install Docker
-Docker is a containerization platform that allows you to quickly build, test, and deploy applications as portable, self-sufficient containers that can virtually run everywhere.
+The supported deployment:
 
-https://github.com/docker/docker-install
-```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-```
+- binds the web interface to `127.0.0.1` for administrator bootstrap;
+- generates database, authentication, update, and restart secrets locally;
+- keeps PostgreSQL credentials out of unrelated containers;
+- pins the Docker-socket updater and restart helper to immutable digests;
+- verifies the restart helper source before starting it;
+- disables third-party registry mirrors unless an operator explicitly opts in.
 
-# Docker Compose
-### Services
-- **Postgres**: Database. **Change `POSTGRES_PASSWORD` for security**.
-- **ZeroTier**: Zerotier Docker service.
-- **ZTNET**: Main app, depends on both `postgres` and `zerotier`.
+Install Docker from your operating system's signed package repository, then
+follow the repository deployment guide from beginning to end. Create the first
+administrator through the documented SSH tunnel before making the service
+reachable through a trusted HTTPS reverse proxy. OAuth-only deployments must set
+`INITIAL_ADMIN_EMAIL` before the first start.
 
-### Setup
+### Existing deployments
 
-:::warning IMPORTANT
+Download and verify the current installer again before upgrading. It preserves
+existing database credentials and application secrets. Deployments created
+before loopback binding was introduced retain their previous listener with a
+migration warning so an upgrade does not silently disconnect the service.
+Follow the guide's migration section to move them behind loopback or a trusted
+reverse proxy.
 
-Change the **NEXTAUTH_URL** environment variable to the canonical URL or IP of your site.
-**Example:**
-- If your server's IP address is 192.168.1.100, set NEXTAUTH_URL to `http://192.168.1.100:3000`.
-- If you have a domain name, use it in place of the IP address.
-- If you are using the HTTPS reverse proxy (Caddy) section below, **NEXTAUTH_URL must use `https://`**
-  (e.g. `https://<YOUR-PUBLIC-HOST-NAME>`, no port), matching the scheme your browser actually connects with.
-  A scheme mismatch (`http://` vs `https://`) will cause Better Auth to reject login requests with an
-  `Invalid origin` error.
-:::
+### Upstream Compose examples
 
-
-```yml title="Create a docker-compose.yml file and populate it as follows:"
-services:
-  postgres:
-    image: postgres:15.2-alpine
-    container_name: postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ztnet
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    networks:
-      - app-network
-
-  zerotier:
-    image: zyclonite/zerotier:1.14.2
-    hostname: zerotier
-    container_name: zerotier
-    restart: unless-stopped
-    volumes:
-      - zerotier:/var/lib/zerotier-one
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    networks:
-      - app-network
-    ports:
-      - "9993:9993/udp"
-    environment:
-      - ZT_OVERRIDE_LOCAL_CONF=true
-      - ZT_ALLOW_MANAGEMENT_FROM=172.31.255.0/29
-
-  ztnet:
-    image: sinamics/ztnet:latest
-    container_name: ztnet
-    working_dir: /app
-    volumes:
-      - zerotier:/var/lib/zerotier-one
-    restart: unless-stopped
-    ports:
-      - 3000:3000
-    # - 127.0.0.1:3000:3000  <--- Use / Uncomment this line to restrict access to localhost only
-    environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ztnet
-      NEXTAUTH_URL: "http://localhost:3000" # !! Important !! Set the NEXTAUTH_URL environment variable to the canonical URL or IP of your site with port 3000
-      NEXTAUTH_SECRET: "random_secret"
-      NEXTAUTH_URL_INTERNAL: "http://ztnet:3000" # Internal NextAuth URL for 'ztnet' container on port 3000. Do not change unless modifying container name.
-    networks:
-      - app-network
-    links:
-      - postgres
-    depends_on:
-      - postgres
-      - zerotier
-
-  ############################################################################
-  #                                                                          #
-  # Uncomment the section below to enable HTTPS reverse proxy with Caddy.    #
-  #                                                                          #
-  # Steps:                                                                   #
-  # 1. Replace <YOUR-PUBLIC-HOST-NAME> with your actual public domain name.  #
-  # 2. Uncomment the caddy_data volume definition in the volumes section.    #
-  #                                                                          #
-  ############################################################################
-
-  # https-proxy:
-  #   image: caddy:latest
-  #   container_name: ztnet-https-proxy
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - ztnet
-  #   command: caddy reverse-proxy --from <YOUR-PUBLIC-HOST-NAME> --to ztnet:3000
-  #   volumes:
-  #     - caddy_data:/data
-  #   networks:
-  #     - app-network
-  #   links:
-  #     - ztnet
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-
-volumes:
-  zerotier:
-  postgres-data:
-  # caddy_data:
-
-networks:
-  app-network:
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.31.255.0/29
-```
-
-Instead of copy the docker-compose.yml file, you can also download it directly from the repository:
-```bash
-wget -O docker-compose.yml https://raw.githubusercontent.com/sinamics/ztnet/main/docker-compose.yml
-```
-
-To change the `NEXTAUTH_URL` in docker-compose.yml, you can use this command that will set the default server ip:
-```bash
-sed -i "s|http://localhost:3000|http://$(hostname -I | cut -d' ' -f1):3000|" docker-compose.yml
-```
-
-To launch ZTNET, execute the following command in your `docker-compose.yml` directory:
-```bash
-docker compose up -d
-```
-
-This action pulls necessary images, initializes the containers, and activates the services.
-Visit `http://localhost:3000` to access the ZTNET web interface.
-
-### ⚠️ NOTE
-The first registered user automatically gains admin privileges.
-As an administrator, you possess unique capabilities not available to regular users. This includes the ability to view all registered accounts on the controller.
-
-Please note that while admins have visibility over registered accounts, they **cannot** interact with or modify other users' networks directly. Each network's configuration and data remain exclusive to the respective user account, maintaining privacy and security for all users.
-
-## Updating ZTNET application
-To update ZTNET, pull the latest image and restart the container.
-
-If you are updating from a earlier version, make sure you set the `NEXTAUTH_URL` environment variable to the canonical URL or IP of your site.
-See Note above for more information about [Installation Setup](/installation/docker-compose#setup)
-```bash
-docker compose pull
-docker compose up -d
-```
-
-## Application Logs
-To view the ZTNET server logs:
-```bash
-docker compose logs -f ztnet
-```
-
-## Ztnet Environment Variables
-See [Environment Variables](/installation/options#environment-variables) for more information.
+The upstream project historically published a general-purpose Compose example
+with a public application port and placeholder credentials. It is useful only as
+upstream reference material and is not a supported installation path for this
+fork. The hardened repository deployment guide above is the sole executable
+installation and update procedure.

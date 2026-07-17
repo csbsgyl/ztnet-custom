@@ -45,11 +45,11 @@ For an SSH remote:
 - `.github/workflows/ghcr-image.yml` is the only container publishing workflow and targets this repository's GHCR package.
 - Upstream workflows tied to the `ztnet.network` and `ztnet.installer` self-hosted runners are intentionally not carried forward.
 
-The one-click installer automatically detects registry connectivity and can fall back to `https://docker.xiaohangyun.org` for Docker Hub images. Because that mirror does not currently proxy the fork's GHCR path, use `ZTNET_MIRROR_IMAGE` when an exact copy is published to a domestic registry.
+The one-click installer uses official image sources by default. Third-party registry mirrors are used only when an operator explicitly configures and enables them.
 
-GitHub source and Raw downloads can use `https://github.xiaohangyun.org/<original-url>`. The deployment guide includes both an accelerator-only command and a direct-first download block that validates the script before execution.
+Download the installer only from the official GitHub repository or API at an immutable commit, verify the SHA-256 published in the deployment guide, and then run the verified local file. Never pipe a proxy response into a root shell.
 
-The generated deployment includes a scoped Watchtower updater based on `nickfedor/watchtower:1.19.0`. It checks only the fork's ZTNET image by label and leaves PostgreSQL and ZeroTier versions under explicit operator control.
+The generated deployment includes a digest-pinned, scoped Watchtower updater. It checks only the fork's ZTNET application image and leaves PostgreSQL, ZeroTier, the updater, and the privileged restart helper under explicit operator control.
 
 ## Container image
 
@@ -66,19 +66,19 @@ For public one-click deployments, make the GitHub package public or users will n
 
 ## One-click deploy command
 
-After the fork is published and the GHCR image exists, document this command in your public README:
+After the fork is published and the GHCR image exists, link users to the immutable-download and checksum procedure in `deploy/README.md`. After they have verified the local installer, it can be run with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+sudo bash ./one-click-install.sh
 ```
 
-For custom domains:
+For a custom domain, pass overrides to that same verified local file:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env \
+sudo env \
   NEXTAUTH_URL=https://ztnet.example.com \
   ZTNET_IMAGE=ghcr.io/csbsgyl/ztnet-custom:latest \
-  bash
+  bash ./one-click-install.sh
 ```
 
 ## Release checklist

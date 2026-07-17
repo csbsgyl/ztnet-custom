@@ -43,19 +43,11 @@ This repository is [csbsgyl/ztnet-custom](https://github.com/csbsgyl/ztnet-custo
 - One-click deployment: [deploy/README.md](deploy/README.md)
 - Deployment script: [deploy/one-click-install.sh](deploy/one-click-install.sh)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
-```
+Follow the [verified one-click deployment procedure](deploy/README.md#quick-start): resolve an immutable commit from the official repository, download the installer, verify its published SHA-256, and only then run it with `sudo`. Never pipe a third-party proxy response into a root shell.
 
-Mainland China GitHub accelerator:
+New installations bind the web UI to `127.0.0.1` for administrator bootstrap. Third-party registry mirrors are disabled by default, the privileged restart helper and updater are digest-pinned, and Watchtower updates only the application image. See [automatic updates](deploy/README.md#automatic-updates), [secure first start](deploy/README.md#secure-first-start), and [registry acceleration](deploy/README.md#registry-acceleration).
 
-```bash
-curl --retry 3 --retry-all-errors -fsSL https://github.xiaohangyun.org/https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
-```
-
-The installer enables hourly background updates for the ZTNET application, automatically detects registry connectivity, and falls back to `docker.xiaohangyun.org` for eligible Docker Hub images. See [automatic updates](deploy/README.md#automatic-updates), [safe GitHub download fallback](deploy/README.md#quick-start), and [registry acceleration](deploy/README.md#registry-acceleration).
-
-### [See Installation Instruction](https://ztnet.network/installation/docker-compose)
+### [Secure Installation Instructions](deploy/README.md)
 
 ## 📷 Images
 View the following images for a visual overview of the ZTNet application:

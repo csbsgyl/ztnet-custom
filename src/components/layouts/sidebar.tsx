@@ -170,7 +170,7 @@ const Sidebar = (): JSX.Element => {
 							</Link>
 						</li>
 					) : null}
-					{me?.options?.ztCentralApiKey ? (
+					{me?.options?.hasZtCentralApiKey ? (
 						<li className="my-px">
 							<Link
 								href="/central"

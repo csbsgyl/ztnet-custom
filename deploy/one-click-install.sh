@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 POSTGRES_USER_PROVIDED="${POSTGRES_USER+x}"
 POSTGRES_DB_PROVIDED="${POSTGRES_DB+x}"
 POSTGRES_PASSWORD_PROVIDED="${POSTGRES_PASSWORD+x}"
 NEXTAUTH_SECRET_PROVIDED="${NEXTAUTH_SECRET+x}"
 NEXTAUTH_URL_PROVIDED="${NEXTAUTH_URL+x}"
+INITIAL_ADMIN_EMAIL_PROVIDED="${INITIAL_ADMIN_EMAIL+x}"
+RATE_LIMIT_TRUST_PROXY_PROVIDED="${RATE_LIMIT_TRUST_PROXY+x}"
+PUBLIC_BIND_EXTERNAL_PROVIDED="${PUBLIC_BIND+x}"
+PUBLIC_BIND_PROVIDED="$PUBLIC_BIND_EXTERNAL_PROVIDED"
 AUTO_UPDATE_PROVIDED="${AUTO_UPDATE+x}"
 AUTO_UPDATE_INTERVAL_PROVIDED="${AUTO_UPDATE_INTERVAL+x}"
 AUTO_UPDATE_CLEANUP_PROVIDED="${AUTO_UPDATE_CLEANUP+x}"
 ZTNET_MIRROR_IMAGES_PROVIDED="${ZTNET_MIRROR_IMAGES+x}"
+ZTNET_IMAGE_PROVIDED="${ZTNET_IMAGE+x}"
 RESTART_HELPER_IMAGE_PROVIDED="${RESTART_HELPER_IMAGE+x}"
+RESTART_HELPER_SOURCE_SHA256_PROVIDED="${RESTART_HELPER_SOURCE_SHA256+x}"
 RESTART_HELPER_MIRROR_IMAGES_PROVIDED="${RESTART_HELPER_MIRROR_IMAGES+x}"
 UPDATE_API_TOKEN_PROVIDED="${UPDATE_API_TOKEN+x}"
 UPDATE_API_URL_PROVIDED="${UPDATE_API_URL+x}"
@@ -20,13 +27,19 @@ RESTART_API_URL_PROVIDED="${RESTART_API_URL+x}"
 APP_NAME="${APP_NAME:-ztnet-custom}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
 HTTP_PORT="${HTTP_PORT:-3000}"
+PUBLIC_BIND="${PUBLIC_BIND:-127.0.0.1}"
 APP_SUBNET="${APP_SUBNET:-172.31.255.0/29}"
 DEFAULT_ZTNET_IMAGE="ghcr.io/csbsgyl/ztnet-custom:latest"
-DEFAULT_ZTNET_MIRROR_IMAGES="ghcr.nju.edu.cn/csbsgyl/ztnet-custom:latest,ghcr.dockerproxy.net/csbsgyl/ztnet-custom:latest,ghcr.1ms.run/csbsgyl/ztnet-custom:latest,ghcr.chenby.cn/csbsgyl/ztnet-custom:latest"
-DEFAULT_RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom:ops-latest"
-DEFAULT_RESTART_HELPER_MIRROR_IMAGES="ghcr.nju.edu.cn/csbsgyl/ztnet-custom:ops-latest,ghcr.dockerproxy.net/csbsgyl/ztnet-custom:ops-latest,ghcr.1ms.run/csbsgyl/ztnet-custom:ops-latest,ghcr.chenby.cn/csbsgyl/ztnet-custom:ops-latest"
+DEFAULT_ZTNET_MIRROR_IMAGES=""
+LEGACY_RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom:ops-latest"
+DEFAULT_RESTART_HELPER_DIGEST="b36809cd64857f8bd95dc6865960b772cf2d2bf1258296c05ebbd0d4e843cb84"
+DEFAULT_RESTART_HELPER_IMAGE="ghcr.io/csbsgyl/ztnet-custom@sha256:${DEFAULT_RESTART_HELPER_DIGEST}"
+DEFAULT_RESTART_HELPER_SOURCE_SHA256="1038d5e16856ad5bed50d987f01cb57b666b61c85d531e01a5da17bd4ad28fa0"
+DEFAULT_RESTART_HELPER_MIRROR_IMAGES=""
+DEFAULT_UPDATER_IMAGE="nickfedor/watchtower@sha256:c1dfdf27fe805dcfefe1cf048cee6960a511c097a99aa355b0bc4be6e6bb3bdf"
 ZTNET_IMAGE="${ZTNET_IMAGE:-${DEFAULT_ZTNET_IMAGE}}"
 RESTART_HELPER_IMAGE="${RESTART_HELPER_IMAGE:-${DEFAULT_RESTART_HELPER_IMAGE}}"
+RESTART_HELPER_SOURCE_SHA256="${RESTART_HELPER_SOURCE_SHA256:-${DEFAULT_RESTART_HELPER_SOURCE_SHA256}}"
 RESTART_HELPER_SOURCE_IMAGE="$RESTART_HELPER_IMAGE"
 ZEROTIER_IMAGE="${ZEROTIER_IMAGE:-zyclonite/zerotier:1.14.2}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:15.2-alpine}"
@@ -35,8 +48,10 @@ POSTGRES_DB="${POSTGRES_DB:-ztnet}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
 NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-}"
 NEXTAUTH_URL="${NEXTAUTH_URL:-}"
-INSTALL_DOCKER="${INSTALL_DOCKER:-auto}"
-DOCKER_MIRROR_MODE="${DOCKER_MIRROR_MODE:-auto}"
+INITIAL_ADMIN_EMAIL="${INITIAL_ADMIN_EMAIL:-}"
+RATE_LIMIT_TRUST_PROXY="${RATE_LIMIT_TRUST_PROXY:-false}"
+INSTALL_DOCKER="${INSTALL_DOCKER:-0}"
+DOCKER_MIRROR_MODE="${DOCKER_MIRROR_MODE:-never}"
 DOCKER_MIRROR_URL="${DOCKER_MIRROR_URL:-https://docker.xiaohangyun.org}"
 DOCKER_PULL_TIMEOUT="${DOCKER_PULL_TIMEOUT:-0}"
 REGISTRY_PROBE_TIMEOUT="${REGISTRY_PROBE_TIMEOUT:-8}"
@@ -52,12 +67,13 @@ UPDATE_API_URL="${UPDATE_API_URL:-http://updater:8080}"
 UPDATE_API_TOKEN="${UPDATE_API_TOKEN:-}"
 RESTART_API_URL="${RESTART_API_URL:-http://restart-helper:8081}"
 RESTART_API_TOKEN="${RESTART_API_TOKEN:-}"
-UPDATER_IMAGE="${UPDATER_IMAGE:-nickfedor/watchtower:1.19.0}"
+UPDATER_IMAGE="${UPDATER_IMAGE:-${DEFAULT_UPDATER_IMAGE}}"
 UPDATER_MIRROR_IMAGE="${UPDATER_MIRROR_IMAGE:-}"
 
 MIRROR_REGISTRY=""
 MIRROR_API_URL=""
 MIRROR_AVAILABLE=0
+PUBLIC_BIND_LEGACY=0
 
 info() {
 	printf '\033[1;34m[INFO]\033[0m %s\n' "$*"
@@ -101,6 +117,73 @@ validate_auto_update() {
 	[ "$AUTO_UPDATE_INTERVAL" -ge 60 ] || fail "AUTO_UPDATE_INTERVAL must be at least 60 seconds."
 }
 
+is_loopback_bind() {
+	case "$1" in
+		127.0.0.1) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+validate_public_access() {
+	case "$PUBLIC_BIND" in
+		"" | *[[:space:]]* | *:*) fail "PUBLIC_BIND must be a single IPv4 address." ;;
+	esac
+
+	if is_loopback_bind "$PUBLIC_BIND"; then
+		return
+	fi
+	if [ "$PUBLIC_BIND_LEGACY" = "1" ]; then
+		warn "Preserving the legacy public bind at ${PUBLIC_BIND}. Set PUBLIC_BIND=127.0.0.1 and use the verified SSH/reverse-proxy bootstrap before the next migration."
+		return
+	fi
+	if [ "$PUBLIC_BIND_PROVIDED" != "x" ]; then
+		fail "Public listening is disabled by default. Set PUBLIC_BIND explicitly only after the first administrator is created behind a trusted HTTPS reverse proxy."
+	fi
+	case "$NEXTAUTH_URL" in
+		https://*) ;;
+		*) fail "A non-loopback PUBLIC_BIND requires an explicit HTTPS NEXTAUTH_URL." ;;
+	esac
+	warn "PUBLIC_BIND=${PUBLIC_BIND} exposes the application beyond this host. Restrict the port with a firewall and complete administrator bootstrap before allowing untrusted traffic."
+}
+
+validate_restart_helper_config() {
+	local candidate
+	local -a mirror_images=()
+
+	if ! image_reference_is_digest_pinned "$RESTART_HELPER_IMAGE"; then
+		fail "RESTART_HELPER_IMAGE must use an immutable @sha256 reference."
+	fi
+	if [ -n "$RESTART_HELPER_MIRROR_IMAGES" ]; then
+		IFS=',' read -r -a mirror_images <<< "$RESTART_HELPER_MIRROR_IMAGES"
+		for candidate in "${mirror_images[@]}"; do
+			candidate="$(trim_whitespace "$candidate")"
+			[ -n "$candidate" ] || continue
+			if ! image_reference_is_digest_pinned "$candidate"; then
+				fail "Every RESTART_HELPER_MIRROR_IMAGES entry must use an immutable @sha256 reference."
+			fi
+		done
+	fi
+	if [[ ! "$RESTART_HELPER_SOURCE_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+		fail "RESTART_HELPER_SOURCE_SHA256 must be a lowercase SHA-256 digest."
+	fi
+	if ! command_exists sha256sum && ! command_exists shasum && ! command_exists openssl; then
+		fail "A SHA-256 tool (sha256sum, shasum, or openssl) is required to verify the restart helper."
+	fi
+}
+
+validate_updater_config() {
+	if ! image_reference_is_digest_pinned "$UPDATER_IMAGE"; then
+		fail "UPDATER_IMAGE must use an immutable @sha256 reference."
+	fi
+	if [ -n "$UPDATER_MIRROR_IMAGE" ] && ! image_reference_is_digest_pinned "$UPDATER_MIRROR_IMAGE"; then
+		fail "UPDATER_MIRROR_IMAGE must use an immutable @sha256 reference."
+	fi
+}
+
+validate_runtime_security() {
+	normalize_boolean "RATE_LIMIT_TRUST_PROXY" "$RATE_LIMIT_TRUST_PROXY"
+}
+
 read_existing_env_value() {
 	local file="$1"
 	local key="$2"
@@ -125,6 +208,26 @@ restore_existing_value() {
 	fi
 }
 
+migrate_legacy_restart_helper_image() {
+	local legacy_registry
+	local legacy_suffix="/${LEGACY_RESTART_HELPER_IMAGE#*/}"
+
+	[ "$RESTART_HELPER_IMAGE_PROVIDED" != "x" ] || return
+	case "$RESTART_HELPER_IMAGE" in
+		*"$legacy_suffix") ;;
+		*) return ;;
+	esac
+
+	legacy_registry="${RESTART_HELPER_IMAGE%"$legacy_suffix"}"
+	case "$legacy_registry" in
+		"" | */*) return ;;
+	esac
+
+	warn "Migrating the restart helper from mutable ops-latest to the verified digest on ${legacy_registry}."
+	RESTART_HELPER_IMAGE="${legacy_registry}/csbsgyl/ztnet-custom@sha256:${DEFAULT_RESTART_HELPER_DIGEST}"
+	RESTART_HELPER_SOURCE_SHA256="$DEFAULT_RESTART_HELPER_SOURCE_SHA256"
+}
+
 load_existing_environment() {
 	local file="${INSTALL_DIR}/.env"
 
@@ -138,14 +241,38 @@ load_existing_environment() {
 	restore_existing_value "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD_PROVIDED" "POSTGRES_PASSWORD" "$file"
 	restore_existing_value "NEXTAUTH_SECRET" "$NEXTAUTH_SECRET_PROVIDED" "NEXTAUTH_SECRET" "$file"
 	restore_existing_value "NEXTAUTH_URL" "$NEXTAUTH_URL_PROVIDED" "NEXTAUTH_URL" "$file"
+	restore_existing_value "INITIAL_ADMIN_EMAIL" "$INITIAL_ADMIN_EMAIL_PROVIDED" "INITIAL_ADMIN_EMAIL" "$file"
+	restore_existing_value "RATE_LIMIT_TRUST_PROXY" "$RATE_LIMIT_TRUST_PROXY_PROVIDED" "RATE_LIMIT_TRUST_PROXY" "$file"
+	local existing_public_bind
+	local existing_nextauth_url
+	existing_public_bind="$(read_existing_env_value "$file" "PUBLIC_BIND" || true)"
+	if [ -n "$existing_public_bind" ]; then
+		restore_existing_value "PUBLIC_BIND" "$PUBLIC_BIND_EXTERNAL_PROVIDED" "PUBLIC_BIND" "$file"
+		PUBLIC_BIND_PROVIDED="x"
+		if [ -z "$PUBLIC_BIND_EXTERNAL_PROVIDED" ] && ! is_loopback_bind "$existing_public_bind"; then
+			existing_nextauth_url="$(read_existing_env_value "$file" "NEXTAUTH_URL" || true)"
+			case "$existing_nextauth_url" in
+				https://*) ;;
+				*) PUBLIC_BIND_LEGACY=1 ;;
+			esac
+		fi
+	elif [ -z "$PUBLIC_BIND_EXTERNAL_PROVIDED" ]; then
+		PUBLIC_BIND="0.0.0.0"
+		PUBLIC_BIND_PROVIDED="x"
+		PUBLIC_BIND_LEGACY=1
+		warn "Existing deployment has no PUBLIC_BIND; preserving its legacy 0.0.0.0 listener during migration."
+	fi
 	restore_existing_value "AUTO_UPDATE" "$AUTO_UPDATE_PROVIDED" "AUTO_UPDATE" "$file"
 	restore_existing_value "AUTO_UPDATE_INTERVAL" "$AUTO_UPDATE_INTERVAL_PROVIDED" "AUTO_UPDATE_INTERVAL" "$file"
 	restore_existing_value "AUTO_UPDATE_CLEANUP" "$AUTO_UPDATE_CLEANUP_PROVIDED" "AUTO_UPDATE_CLEANUP" "$file"
+	restore_existing_value "ZTNET_IMAGE" "$ZTNET_IMAGE_PROVIDED" "ZTNET_IMAGE" "$file"
 	restore_existing_value "UPDATE_API_URL" "$UPDATE_API_URL_PROVIDED" "UPDATE_API_URL" "$file"
 	restore_existing_value "UPDATE_API_TOKEN" "$UPDATE_API_TOKEN_PROVIDED" "UPDATE_API_TOKEN" "$file"
 	restore_existing_value "RESTART_API_URL" "$RESTART_API_URL_PROVIDED" "RESTART_API_URL" "$file"
 	restore_existing_value "RESTART_API_TOKEN" "$RESTART_API_TOKEN_PROVIDED" "RESTART_API_TOKEN" "$file"
 	restore_existing_value "RESTART_HELPER_IMAGE" "$RESTART_HELPER_IMAGE_PROVIDED" "RESTART_HELPER_IMAGE" "$file"
+	restore_existing_value "RESTART_HELPER_SOURCE_SHA256" "$RESTART_HELPER_SOURCE_SHA256_PROVIDED" "RESTART_HELPER_SOURCE_SHA256" "$file"
+	migrate_legacy_restart_helper_image
 }
 
 probe_url() {
@@ -275,20 +402,12 @@ trim_whitespace() {
 }
 
 configure_ztnet_mirror_images() {
-	if [ "$ZTNET_MIRROR_IMAGES_PROVIDED" != "x" ] && [ "$ZTNET_IMAGE" = "$DEFAULT_ZTNET_IMAGE" ]; then
-		ZTNET_MIRROR_IMAGES="$DEFAULT_ZTNET_MIRROR_IMAGES"
-	fi
-
 	if [ -n "$ZTNET_MIRROR_IMAGE" ]; then
 		if [ -n "$ZTNET_MIRROR_IMAGES" ]; then
 			ZTNET_MIRROR_IMAGES="${ZTNET_MIRROR_IMAGE},${ZTNET_MIRROR_IMAGES}"
 		else
 			ZTNET_MIRROR_IMAGES="$ZTNET_MIRROR_IMAGE"
 		fi
-	fi
-
-	if [ "$RESTART_HELPER_MIRROR_IMAGES_PROVIDED" != "x" ] && [ "$RESTART_HELPER_IMAGE" = "$DEFAULT_RESTART_HELPER_IMAGE" ]; then
-		RESTART_HELPER_MIRROR_IMAGES="$DEFAULT_RESTART_HELPER_MIRROR_IMAGES"
 	fi
 }
 
@@ -317,11 +436,9 @@ select_image() {
 	local direct_image="$2"
 	local explicit_mirrors="$3"
 	local fallback_name="$4"
-	local prefer_mirrors="${5:-false}"
-	local validator="${6:-}"
+	local validator="${5:-}"
 	local generated_mirror=""
 	local registry_url
-	local direct_reachable=1
 	local candidate
 	local existing
 	local seen
@@ -350,21 +467,18 @@ select_image() {
 	if command_exists curl; then
 		registry_url="$(image_registry_url "$direct_image")"
 		if ! probe_url "$registry_url"; then
-			direct_reachable=0
 			warn "Source registry probe failed for ${direct_image}."
 		fi
 	fi
 
-	if [ "${#mirror_images[@]}" -gt 0 ] && {
-		[ "$DOCKER_MIRROR_MODE" = "always" ] ||
-			[ "$direct_reachable" -eq 0 ] ||
-			[ "$prefer_mirrors" = "true" ]
-	}; then
+	if [ "${#mirror_images[@]}" -gt 0 ] && [ "$DOCKER_MIRROR_MODE" = "always" ]; then
 		candidates+=("${mirror_images[@]}")
 		candidates+=("$direct_image")
 	else
 		candidates+=("$direct_image")
-		candidates+=("${mirror_images[@]}")
+		if [ "${#mirror_images[@]}" -gt 0 ]; then
+			candidates+=("${mirror_images[@]}")
+		fi
 	fi
 
 	for candidate in "${candidates[@]}"; do
@@ -409,20 +523,46 @@ select_image() {
 	fail "Unable to pull ${direct_image}. Set ${fallback_name} to a reachable registry copy or check registry connectivity."
 }
 
+sha256_file() {
+	local file="$1"
+
+	if command_exists sha256sum; then
+		sha256sum "$file" | awk '{ print $1 }'
+	elif command_exists shasum; then
+		shasum -a 256 "$file" | awk '{ print $1 }'
+	elif command_exists openssl; then
+		openssl dgst -sha256 "$file" | awk '{ print $NF }'
+	else
+		return 1
+	fi
+}
+
+image_reference_is_digest_pinned() {
+	[[ "$1" =~ @sha256:[0-9a-f]{64}$ ]]
+}
+
 image_has_restart_helper() {
 	local image="$1"
 	local temporary_directory
 	local container_id=""
 	local helper_path
+	local actual_sha256=""
 	local valid=1
+
+	if ! image_reference_is_digest_pinned "$image"; then
+		warn "Restart helper images must use an immutable @sha256 reference: ${image}"
+		return 1
+	fi
 
 	temporary_directory="$(mktemp -d)"
 	helper_path="${temporary_directory}/container-ops.mjs"
 	container_id="$(docker create "$image" 2>/dev/null || true)"
 	if [ -n "$container_id" ] &&
 		docker cp "${container_id}:/app/container-ops.mjs" "$helper_path" >/dev/null 2>&1 &&
-		[ -s "$helper_path" ] &&
-		grep -Fq "createContainerOpsServer" "$helper_path"; then
+		[ -f "$helper_path" ] &&
+		[ ! -L "$helper_path" ] &&
+		actual_sha256="$(sha256_file "$helper_path" 2>/dev/null)" &&
+		[ "$actual_sha256" = "$RESTART_HELPER_SOURCE_SHA256" ]; then
 		valid=0
 	fi
 
@@ -435,7 +575,7 @@ image_has_restart_helper() {
 
 require_root() {
 	if [ "$(id -u)" -ne 0 ]; then
-		fail "Please run as root, for example: curl -fsSL <script-url> | sudo bash"
+		fail "Please run the downloaded and verified installer as root, for example: sudo bash ./one-click-install.sh"
 	fi
 }
 
@@ -491,20 +631,37 @@ detect_host() {
 }
 
 install_docker_if_needed() {
+	local installer
+	local status
+
 	if command_exists docker; then
 		return
 	fi
 
-	if [ "$INSTALL_DOCKER" = "0" ] || [ "$INSTALL_DOCKER" = "false" ]; then
-		fail "Docker is not installed. Install Docker first or rerun with INSTALL_DOCKER=auto."
-	fi
+	case "$INSTALL_DOCKER" in
+		0 | false) fail "Docker is not installed. Install Docker from your distribution or Docker's signed package repository. Set INSTALL_DOCKER=auto only to explicitly trust Docker's convenience installer." ;;
+		auto) ;;
+		*) fail "INSTALL_DOCKER must be 0, false, or auto." ;;
+	esac
 
 	info "Docker was not found. Installing Docker using get.docker.com..."
 	if ! command_exists curl; then
 		fail "curl is required to install Docker automatically."
 	fi
 
-	curl -fsSL https://get.docker.com | sh
+	installer="$(mktemp)"
+	if ! curl -fsSL https://get.docker.com -o "$installer"; then
+		rm -f "$installer"
+		fail "Unable to download Docker's convenience installer."
+	fi
+	chmod 700 "$installer"
+	if sh "$installer"; then
+		status=0
+	else
+		status=$?
+	fi
+	rm -f "$installer"
+	[ "$status" -eq 0 ] || return "$status"
 }
 
 compose_up() {
@@ -525,7 +682,7 @@ write_env_file() {
 		NEXTAUTH_SECRET="$(random_secret)"
 	fi
 	if [ -z "$NEXTAUTH_URL" ]; then
-		NEXTAUTH_URL="http://$(detect_host):${HTTP_PORT}"
+		NEXTAUTH_URL="http://127.0.0.1:${HTTP_PORT}"
 	fi
 	if [ -z "$UPDATE_API_TOKEN" ]; then
 		UPDATE_API_TOKEN="$(random_secret)"
@@ -536,15 +693,21 @@ write_env_file() {
 	if [ "${#RESTART_API_TOKEN}" -lt 32 ]; then
 		fail "RESTART_API_TOKEN must contain at least 32 characters."
 	fi
+	if [ "$UPDATE_API_TOKEN" = "$RESTART_API_TOKEN" ]; then
+		fail "UPDATE_API_TOKEN and RESTART_API_TOKEN must be different."
+	fi
 
 	cat > "${INSTALL_DIR}/.env" <<EOF
 POSTGRES_USER=${POSTGRES_USER}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=${POSTGRES_DB}
 POSTGRES_PORT=5432
+PUBLIC_BIND=${PUBLIC_BIND}
 NEXTAUTH_URL=${NEXTAUTH_URL}
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 NEXTAUTH_URL_INTERNAL=http://ztnet:3000
+INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
+RATE_LIMIT_TRUST_PROXY=${RATE_LIMIT_TRUST_PROXY}
 AUTO_UPDATE=${AUTO_UPDATE}
 AUTO_UPDATE_INTERVAL=${AUTO_UPDATE_INTERVAL}
 AUTO_UPDATE_CLEANUP=${AUTO_UPDATE_CLEANUP}
@@ -554,6 +717,7 @@ UPDATE_API_TOKEN=${UPDATE_API_TOKEN}
 RESTART_API_URL=${RESTART_API_URL}
 RESTART_API_TOKEN=${RESTART_API_TOKEN}
 RESTART_HELPER_IMAGE=${RESTART_HELPER_SOURCE_IMAGE}
+RESTART_HELPER_SOURCE_SHA256=${RESTART_HELPER_SOURCE_SHA256}
 EOF
 	chmod 600 "${INSTALL_DIR}/.env"
 }
@@ -565,8 +729,6 @@ services:
     image: ${POSTGRES_IMAGE}
     container_name: ${APP_NAME}-postgres
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       POSTGRES_USER: \${POSTGRES_USER}
       POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
@@ -611,7 +773,7 @@ services:
       - zerotier:/var/lib/zerotier-one
       - ./backups:/app/backups
     ports:
-      - "${HTTP_PORT}:3000"
+      - "${PUBLIC_BIND}:${HTTP_PORT}:3000"
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: \${POSTGRES_PORT}
@@ -621,6 +783,8 @@ services:
       NEXTAUTH_URL: \${NEXTAUTH_URL}
       NEXTAUTH_SECRET: \${NEXTAUTH_SECRET}
       NEXTAUTH_URL_INTERNAL: \${NEXTAUTH_URL_INTERNAL}
+      INITIAL_ADMIN_EMAIL: \${INITIAL_ADMIN_EMAIL}
+      RATE_LIMIT_TRUST_PROXY: \${RATE_LIMIT_TRUST_PROXY}
       RESTART_API_URL: \${RESTART_API_URL}
       RESTART_API_TOKEN: \${RESTART_API_TOKEN}
       BACKUP_DIR: /app/backups
@@ -660,14 +824,6 @@ EOF
     security_opt:
       - no-new-privileges:true
 EOF
-
-	if [ "$AUTO_UPDATE" = "true" ]; then
-		cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-      com.centurylinklabs.watchtower.scope: "${APP_NAME}"
-EOF
-	fi
 
 	cat >> "${INSTALL_DIR}/docker-compose.yml" <<EOF
     volumes:
@@ -728,16 +884,20 @@ main() {
 	load_existing_environment
 	RESTART_HELPER_SOURCE_IMAGE="$RESTART_HELPER_IMAGE"
 	validate_auto_update
+	validate_public_access
+	validate_restart_helper_config
+	validate_updater_config
+	validate_runtime_security
 	install_docker_if_needed
 	configure_mirror
 	configure_ztnet_mirror_images
 
-	select_image "ZTNET_IMAGE" "$ZTNET_IMAGE" "$ZTNET_MIRROR_IMAGES" "ZTNET_MIRROR_IMAGES" "true"
-	select_image "RESTART_HELPER_IMAGE" "$RESTART_HELPER_IMAGE" "$RESTART_HELPER_MIRROR_IMAGES" "RESTART_HELPER_MIRROR_IMAGES" "true" "image_has_restart_helper"
+	select_image "ZTNET_IMAGE" "$ZTNET_IMAGE" "$ZTNET_MIRROR_IMAGES" "ZTNET_MIRROR_IMAGES"
+	select_image "RESTART_HELPER_IMAGE" "$RESTART_HELPER_IMAGE" "$RESTART_HELPER_MIRROR_IMAGES" "RESTART_HELPER_MIRROR_IMAGES" "image_has_restart_helper"
 	select_image "ZEROTIER_IMAGE" "$ZEROTIER_IMAGE" "$ZEROTIER_MIRROR_IMAGE" "ZEROTIER_MIRROR_IMAGE"
 	select_image "POSTGRES_IMAGE" "$POSTGRES_IMAGE" "$POSTGRES_MIRROR_IMAGE" "POSTGRES_MIRROR_IMAGE"
 	if [ "$AUTO_UPDATE" = "true" ]; then
-		select_image "UPDATER_IMAGE" "$UPDATER_IMAGE" "$UPDATER_MIRROR_IMAGE" "UPDATER_MIRROR_IMAGE"
+		select_image "UPDATER_IMAGE" "$UPDATER_IMAGE" "$UPDATER_MIRROR_IMAGE" "UPDATER_MIRROR_IMAGE" "image_reference_is_digest_pinned"
 	fi
 
 	if [ ! -e /dev/net/tun ]; then

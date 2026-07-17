@@ -161,6 +161,18 @@ export async function runBeforeAuthHook(ctx: any): Promise<void> {
 		});
 	}
 
+	if (
+		ctx.path === "/sign-up/email" ||
+		ctx.path === "/change-password" ||
+		ctx.path === "/request-password-reset" ||
+		ctx.path === "/reset-password" ||
+		ctx.path === "/reset-password/:token"
+	) {
+		throw new APIError("FORBIDDEN", {
+			message: "Use the ZTNET account workflow for registration and password changes.",
+		});
+	}
+
 	if (ctx.path !== "/sign-in/email") return;
 
 	const body = ctx.body as Record<string, unknown>;
@@ -443,9 +455,8 @@ export async function onSessionCreated(
 	}
 }
 
-// User-creation hook. Enforces OAUTH_ALLOW_NEW_USERS / global registration toggle
-// when the create is triggered by the OAuth callback flow, and stamps the standard
-// ztnet defaults onto the new row (role, group, firstTime, etc.).
+// User-creation hook. Enforces the relevant registration gates and stamps the
+// standard ztnet defaults onto the new row (role, group, firstTime, etc.).
 // Exported for unit testing.
 export async function onUserCreateBefore(
 	user: Record<string, unknown>,
@@ -455,27 +466,28 @@ export async function onUserCreateBefore(
 	const path: string | undefined = ctx?.path;
 	const isOAuthFlow =
 		typeof path === "string" &&
-		(path.startsWith("/oauth2/callback/") || path === "/sign-in/oauth2");
+		(path.startsWith("/callback/") ||
+			path.startsWith("/oauth2/callback/") ||
+			path === "/sign-in/oauth2");
 
-	if (isOAuthFlow) {
-		// Honour OAUTH_ALLOW_NEW_USERS — block OAuth account creation when off.
-		if (!isOAuthAllowNewUsers()) {
+	if (isOAuthFlow && !isOAuthAllowNewUsers()) {
+		throw new APIError("FORBIDDEN", {
+			message: "registration_disabled",
+		});
+	}
+
+	// Every Better Auth user-creation path must respect the same registration
+	// policy as the tRPC form. Exclusive OAuth intentionally keeps its existing
+	// behavior of using OAUTH_ALLOW_NEW_USERS as the sole creation gate.
+	if (!(isOAuthFlow && isOAuthExclusiveLogin())) {
+		const settings = await prisma.globalOptions.findFirst({
+			where: { id: 1 },
+			select: { enableRegistration: true },
+		});
+		if (!settings?.enableRegistration) {
 			throw new APIError("FORBIDDEN", {
 				message: "registration_disabled",
 			});
-		}
-
-		// Outside of exclusive-OAuth mode, also respect the global registration toggle.
-		if (!isOAuthExclusiveLogin()) {
-			const settings = await prisma.globalOptions.findFirst({
-				where: { id: 1 },
-				select: { enableRegistration: true },
-			});
-			if (!settings?.enableRegistration) {
-				throw new APIError("FORBIDDEN", {
-					message: "registration_disabled",
-				});
-			}
 		}
 	}
 
@@ -483,6 +495,18 @@ export async function onUserCreateBefore(
 	const defaultUserGroup = await prisma.userGroup.findFirst({
 		where: { isDefault: true },
 	});
+	if (userCount === 0) {
+		const configuredAdminEmail = process.env.INITIAL_ADMIN_EMAIL
+			? normalizeEmail(process.env.INITIAL_ADMIN_EMAIL)
+			: "";
+		const candidateEmail =
+			typeof user.email === "string" ? normalizeEmail(user.email) : "";
+		if (!configuredAdminEmail || candidateEmail !== configuredAdminEmail) {
+			throw new APIError("FORBIDDEN", {
+				message: "initial_admin_setup_required",
+			});
+		}
+	}
 
 	return {
 		data: {
@@ -525,6 +549,9 @@ export const auth = betterAuth({
 
 	emailAndPassword: {
 		enabled: true,
+		disableSignUp: true,
+		minPasswordLength: 6,
+		maxPasswordLength: 40,
 		password: {
 			hash: async (password: string) => {
 				return hash(password, 10);
@@ -537,24 +564,78 @@ export const auth = betterAuth({
 
 	user: {
 		additionalFields: {
-			lastLogin: { type: "date", required: false },
-			lastseen: { type: "date", required: false },
-			online: { type: "boolean", required: false, defaultValue: false },
-			role: { type: "string", defaultValue: "USER", required: false },
-			hash: { type: "string", required: false },
-			tempPassword: { type: "string", required: false },
-			firstTime: { type: "boolean", required: false, defaultValue: true },
-			twoFactorEnabled: { type: "boolean", required: false, defaultValue: false },
-			twoFactorSecret: { type: "string", required: false },
-			failedLoginAttempts: { type: "number", required: false, defaultValue: 0 },
+			// These fields are owned by server-side account workflows. Better Auth
+			// otherwise accepts additional fields in /update-user by default.
+			lastLogin: { type: "date", required: false, input: false, returned: false },
+			lastseen: { type: "date", required: false, input: false, returned: false },
+			online: {
+				type: "boolean",
+				required: false,
+				defaultValue: false,
+				input: false,
+				returned: false,
+			},
+			role: {
+				type: "string",
+				defaultValue: "USER",
+				required: false,
+				input: false,
+			},
+			hash: { type: "string", required: false, input: false, returned: false },
+			tempPassword: {
+				type: "string",
+				required: false,
+				input: false,
+				returned: false,
+			},
+			firstTime: {
+				type: "boolean",
+				required: false,
+				defaultValue: true,
+				input: false,
+				returned: false,
+			},
+			twoFactorEnabled: {
+				type: "boolean",
+				required: false,
+				defaultValue: false,
+				input: false,
+				returned: false,
+			},
+			twoFactorSecret: {
+				type: "string",
+				required: false,
+				input: false,
+				returned: false,
+			},
+			failedLoginAttempts: {
+				type: "number",
+				required: false,
+				defaultValue: 0,
+				input: false,
+				returned: false,
+			},
 			requestChangePassword: {
 				type: "boolean",
 				required: false,
 				defaultValue: false,
+				input: false,
+				returned: false,
 			},
-			userGroupId: { type: "number", required: false },
-			expiresAt: { type: "date", required: false },
-			isActive: { type: "boolean", required: false, defaultValue: true },
+			userGroupId: {
+				type: "number",
+				required: false,
+				input: false,
+				returned: false,
+			},
+			expiresAt: { type: "date", required: false, input: false, returned: false },
+			isActive: {
+				type: "boolean",
+				required: false,
+				defaultValue: true,
+				input: false,
+				returned: false,
+			},
 		},
 	},
 

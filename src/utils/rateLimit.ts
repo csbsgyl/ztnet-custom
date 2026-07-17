@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { IncomingMessage } from "node:http";
 import type { NextApiResponse } from "next";
 import { LRUCache } from "lru-cache";
 
@@ -31,28 +33,63 @@ export const RATE_LIMIT_CONFIG = {
 	},
 };
 
+type ResponseWithRequest = NextApiResponse & { req?: IncomingMessage };
+
+function firstHeader(value: string | string[] | undefined): string {
+	return Array.isArray(value) ? value[0] || "" : value || "";
+}
+
+function digestIdentity(value: string): string {
+	return createHash("sha256").update(value).digest("hex");
+}
+
+function requestIdentity(res: NextApiResponse): string {
+	const req = (res as ResponseWithRequest).req;
+	const directAddress = req?.socket?.remoteAddress || "unknown";
+	const forwardedAddress =
+		process.env.RATE_LIMIT_TRUST_PROXY === "true"
+			? firstHeader(req?.headers["x-forwarded-for"]).split(",", 1)[0]?.trim()
+			: "";
+	const clientAddress = forwardedAddress || directAddress;
+	return digestIdentity(clientAddress);
+}
+
+function consumeBucket(cache: LRUCache<string, number[]>, key: string): number {
+	const tokenCount = cache.get(key) || [0];
+	if (tokenCount[0] === 0) cache.set(key, tokenCount);
+	tokenCount[0] += 1;
+	return tokenCount[0];
+}
+
 export default function rateLimit(options?: Options) {
-	const tokenCache = new LRUCache({
+	const cacheOptions = {
 		max: options?.uniqueTokenPerInterval || 500,
 		ttl: options?.interval || 60000,
-	});
+	};
+	const clientCache = new LRUCache<string, number[]>(cacheOptions);
+	const subjectCache = new LRUCache<string, number[]>(cacheOptions);
 
 	return {
-		check: (res: NextApiResponse, limit: number, token: string) =>
+		check: (res: NextApiResponse, limit: number, scope: string, subject?: string) =>
 			new Promise<void>((resolve, reject) => {
-				const tokenCount = (tokenCache.get(token) as number[]) || [0];
-				if (tokenCount[0] === 0) {
-					tokenCache.set(token, tokenCount);
+				const usages = [consumeBucket(clientCache, `${scope}:${requestIdentity(res)}`)];
+				const normalizedSubject = subject?.trim();
+				if (normalizedSubject) {
+					usages.push(
+						consumeBucket(subjectCache, `${scope}:${digestIdentity(normalizedSubject)}`),
+					);
 				}
-				tokenCount[0] += 1;
 
-				const currentUsage = tokenCount[0];
-				const isRateLimited = currentUsage >= limit;
+				const strictestUsage = Math.max(...usages);
+				const isRateLimited = usages.some((usage) => usage > limit);
 				res.setHeader("X-RateLimit-Limit", limit);
-				res.setHeader("X-RateLimit-Remaining", isRateLimited ? 0 : limit - currentUsage);
+				res.setHeader("X-RateLimit-Remaining", Math.max(0, limit - strictestUsage));
 
 				return isRateLimited ? reject() : resolve();
 			}),
-		reset: () => tokenCache.clear(),
+		reset: () => {
+			clientCache.clear();
+			subjectCache.clear();
+		},
 	};
 }

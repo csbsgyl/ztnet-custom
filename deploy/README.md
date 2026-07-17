@@ -14,82 +14,72 @@ Supported hosts: Linux `amd64` and `arm64`.
 
 ## Quick start
 
-Use the public image built from this fork:
+Install Docker from your distribution or Docker's signed package repository first. Then resolve one immutable commit from the official repository, download the installer from that commit, and verify its published checksum before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+set -Eeuo pipefail
+repo='csbsgyl/ztnet-custom'
+installer="$(mktemp)"
+trap 'rm -f "$installer"' EXIT
+commit="$(git ls-remote "https://github.com/${repo}.git" refs/heads/main | awk 'NR == 1 { print $1 }')"
+printf '%s\n' "$commit" | grep -Eq '^[0-9a-f]{40}$'
+curl -fsSL "https://raw.githubusercontent.com/${repo}/${commit}/deploy/one-click-install.sh" -o "$installer"
+printf '%s  %s\n' '7c87f769005b401259891a7050a3e52bfa2dbdb9eb0dcec020a934f94e434b08' "$installer" | sha256sum -c -
+sudo bash "$installer"
 ```
 
-For a mainland China server, try the official GitHub API first. This endpoint is often reachable even when `raw.githubusercontent.com` is not:
+If `raw.githubusercontent.com` is unavailable but the official GitHub API is reachable, keep the same resolved commit and checksum and use the API as the download source:
 
 ```bash
-curl --retry 2 --retry-all-errors -fL \
+set -Eeuo pipefail
+repo='csbsgyl/ztnet-custom'
+installer="$(mktemp)"
+trap 'rm -f "$installer"' EXIT
+commit="$(git ls-remote "https://github.com/${repo}.git" refs/heads/main | awk 'NR == 1 { print $1 }')"
+printf '%s\n' "$commit" | grep -Eq '^[0-9a-f]{40}$'
+curl --retry 2 --retry-all-errors -fsSL \
   -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo bash
+  "https://api.github.com/repos/${repo}/contents/deploy/one-click-install.sh?ref=${commit}" \
+  -o "$installer"
+printf '%s  %s\n' '7c87f769005b401259891a7050a3e52bfa2dbdb9eb0dcec020a934f94e434b08' "$installer" | sha256sum -c -
+sudo bash "$installer"
 ```
 
-To automatically try multiple download paths, run this block as one command:
+Do not pipe a third-party proxy response into `sudo bash`. TLS to a proxy authenticates the proxy, not the GitHub content it returns. A CI-time comparison cannot protect a later or selectively modified user download.
+
+The installer does not run Docker's remote convenience installer by default. `INSTALL_DOCKER=auto` is an explicit opt-in to trust `get.docker.com`; signed OS packages are preferred.
+
+To deploy the unmodified upstream application image, pass the override only after downloading and verifying this installer:
 
 ```bash
-(
-  set -Eeuo pipefail
-  installer="$(mktemp)"
-  cleanup() { rm -f "$installer"; }
-  trap cleanup EXIT
-  direct_url="https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh"
-  urls=(
-    'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main'
-    "$direct_url"
-    "https://ghproxy.net/${direct_url}"
-    "https://ghfast.top/${direct_url}"
-    "https://gh-proxy.com/${direct_url}"
-    "https://github.xiaohangyun.org/${direct_url}"
-  )
-  for url in "${urls[@]}"; do
-    printf '[INFO] Trying %s\n' "$url"
-    if curl --retry 1 --retry-all-errors -fL \
-      -H 'Accept: application/vnd.github.raw+json' \
-      --connect-timeout 8 --max-time 45 \
-      "$url" -o "$installer" &&
-      head -n 1 "$installer" | grep -qx '#!/usr/bin/env bash'; then
-      sudo bash "$installer"
-      exit
-    fi
-  done
-  printf '[ERROR] All installer download sources failed.\n' >&2
-  exit 1
-)
-```
-
-To deploy the unmodified upstream image with this installer instead:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env ZTNET_IMAGE=sinamics/ztnet:latest bash
+sudo env ZTNET_IMAGE=sinamics/ztnet:latest bash "$installer"
 ```
 
 ## Automatic updates
 
-Automatic ZTNET updates are enabled by default. The updater checks the configured application and restart-helper image digests every hour and recreates either labeled service when its image changes. PostgreSQL, ZeroTier, and the updater itself are not automatically upgraded.
+Automatic application updates are enabled by default. The updater checks only the configured ZTNET application image every hour. PostgreSQL, ZeroTier, the updater, and the privileged restart helper are not automatically upgraded. One-click deployments include the updater only while `AUTO_UPDATE=true`; static Compose deployments gate it behind the `auto-update` profile.
 
 Administrators can view the current build, latest successful image build, updater connection, and polling interval under **Admin > System Update**. The page can also request an immediate scoped update check.
 
-Existing installations need to run the installer once to add the private updater API and restart helper. Existing database credentials, auth secrets, public URL, update settings, update API token, and restart API token are preserved on later runs:
+Existing installations can rerun a freshly downloaded and verified installer. Database credentials, auth secrets, public URL, bind address, bootstrap email, configured application image, update settings, and API tokens are preserved. Installations created before `PUBLIC_BIND` was introduced keep their legacy `0.0.0.0` listener with a migration warning so they are not silently disconnected; explicitly set `PUBLIC_BIND=127.0.0.1` after arranging the SSH/reverse-proxy bootstrap. An old helper reference matching `<registry>/csbsgyl/ztnet-custom:ops-latest` is migrated to the verified digest on the same registry and then source-verified. Other mutable helper tags remain rejected.
 
 ```bash
-curl --retry 2 --retry-all-errors -fL \
-  -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo bash
+sudo bash /path/to/verified-one-click-install.sh
 ```
 
-For deployments maintained directly from `deploy/docker-compose.yml`, add the new required token to the existing `.env` before running `docker compose up -d`:
+For deployments maintained directly from `deploy/docker-compose.yml`, add the new required token and enable the updater profile in the existing `.env` before running `docker compose up -d`. Also set `PUBLIC_BIND` explicitly: use `127.0.0.1` after arranging an SSH tunnel or same-host reverse proxy, or temporarily keep `0.0.0.0` only when preserving the old public listener is required. Omitting it uses the new loopback default and can disconnect an existing remotely accessed deployment.
 
 ```bash
 printf 'RESTART_API_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
+printf 'COMPOSE_PROFILES=auto-update\n' >> .env
+printf 'PUBLIC_BIND=0.0.0.0\n' >> .env # Legacy reachability only; migrate to 127.0.0.1.
 ```
 
-Also add `RESTART_HELPER_IMAGE=ghcr.io/csbsgyl/ztnet-custom:ops-latest` when migrating an existing hand-maintained deployment. Compose intentionally fails closed when the restart token is absent rather than starting with a predictable credential.
+Ensure `RESTART_API_TOKEN` differs from `UPDATE_API_TOKEN`. Also use the digest-pinned `RESTART_HELPER_IMAGE`, `RESTART_HELPER_SOURCE_SHA256`, and `UPDATER_IMAGE` values from `deploy/.env.example`. Compose intentionally fails closed when either required token is absent rather than starting with a predictable credential.
 
-The installer inspects the selected helper image without starting it and refuses to continue unless `/app/container-ops.mjs` is present. Immediately after a new source release, wait for the matching container build if every registry mirror still serves the previous image.
+The installer requires every helper and updater reference to use `@sha256`. It copies `/app/container-ops.mjs` out without starting the helper container and compares it with the expected source SHA-256. The helper has no Watchtower update label. Updating it is an explicit release operation that must update both verified helper digests.
+
+Docker Compose itself cannot enforce an `@sha256` format or compare a file inside an image. In the static Compose path, `RESTART_HELPER_SOURCE_SHA256` is review metadata and is not consumed by Compose. Leave the pinned helper and updater defaults unchanged unless you independently verify the replacement references. Use the one-click installer whenever automated digest and helper-source validation is required.
 
 After that one-time command, future application releases are detected and installed in the background or can be requested from the admin page. View updater activity with:
 
@@ -101,17 +91,24 @@ docker compose logs -f updater
 Change the polling interval to ten minutes:
 
 ```bash
-curl --retry 2 --retry-all-errors -fL \
-  -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo env AUTO_UPDATE_INTERVAL=600 bash
+sudo env AUTO_UPDATE_INTERVAL=600 bash /path/to/verified-one-click-install.sh
 ```
 
-Disable background updates and remove the updater container:
+Disable background updates and remove the updater container from a one-click deployment:
 
 ```bash
-curl --retry 2 --retry-all-errors -fL \
-  -H 'Accept: application/vnd.github.raw+json' \
-  'https://api.github.com/repos/csbsgyl/ztnet-custom/contents/deploy/one-click-install.sh?ref=main' | sudo env AUTO_UPDATE=false bash
+sudo env AUTO_UPDATE=false bash /path/to/verified-one-click-install.sh
+```
+
+For a static Compose deployment, set both values in `.env`, then reconcile the project so the profiled updater becomes an orphan and is removed:
+
+```dotenv
+AUTO_UPDATE=false
+COMPOSE_PROFILES=
+```
+
+```bash
+docker compose up -d --remove-orphans
 ```
 
 Old application images are retained by default for manual rollback. Set `AUTO_UPDATE_CLEANUP=true` only when automatic removal of replaced images is preferred.
@@ -131,52 +128,65 @@ The helper mounts `/var/run/docker.sock`, which still grants that helper Docker 
 
 ## Registry acceleration
 
-The installer uses separate acceleration paths for the application image and Docker Hub images.
+Third-party registry acceleration is disabled by default. The installer pulls the configured official source references directly and has no built-in ZTNET or restart-helper proxy list. `DOCKER_MIRROR_URL` is inactive until mirror mode is explicitly enabled.
 
-For the default application image, it tries these GHCR-compatible references in order before direct GHCR:
-
-1. `ghcr.nju.edu.cn/csbsgyl/ztnet-custom:latest`
-2. `ghcr.dockerproxy.net/csbsgyl/ztnet-custom:latest`
-3. `ghcr.1ms.run/csbsgyl/ztnet-custom:latest`
-4. `ghcr.chenby.cn/csbsgyl/ztnet-custom:latest`
-5. `ghcr.io/csbsgyl/ztnet-custom:latest`
-
-The four proxy references were verified against the official OCI index digest and an actual image layer on `2026-07-14`. The installer still treats the real `docker pull` result as authoritative and automatically continues to the next candidate after a failure. The selected reference is written into the generated Compose file, so the background updater checks the same reachable image source.
-
-Docker Hub images such as PostgreSQL, ZeroTier, and Watchtower retain automatic fallback through `https://docker.xiaohangyun.org`. This mirror is not used as a GHCR endpoint.
+Mirrors expand the image supply chain. Configure only registries you operate or explicitly trust. A successful pull proves availability, not authenticity.
 
 Mirror modes:
 
-- `auto`: try the built-in ZTNET proxy list first; for Docker Hub images, use the configured mirror after a source probe or pull failure. This is the default.
-- `always`: try the mirror first, then fall back to the source registry.
-- `never`: disable mirror detection and use only the configured source images.
+- `never`: use only configured source images. This is the default.
+- `auto`: try the official source first, then explicitly configured mirrors after a pull failure.
+- `always`: try explicitly configured mirrors first, then the official source.
 
-Force the supplied mirror to be tried first:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env DOCKER_MIRROR_MODE=always bash
-```
-
-Override the complete ZTNET candidate list with a comma-separated value:
+Enable an explicit application mirror as a fallback, using a verified local installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env \
-  ZTNET_MIRROR_IMAGES='registry-a.example.com/ztnet-custom:latest,registry-b.example.com/ztnet-custom:latest' \
-  bash
+sudo env \
+  DOCKER_MIRROR_MODE=auto \
+  ZTNET_MIRROR_IMAGES='registry.example.com/ztnet-custom:latest' \
+  bash /path/to/verified-one-click-install.sh
 ```
 
-The legacy `ZTNET_MIRROR_IMAGE` option is still accepted and prepended to the candidate list. Setting `DOCKER_MIRROR_MODE=never` disables all proxy candidates. Overriding `ZTNET_IMAGE` also disables the built-in fork-specific list unless `ZTNET_MIRROR_IMAGES` is supplied explicitly.
+For a helper mirror, both the official and mirror references must be immutable digest references. The copied helper source must also match `RESTART_HELPER_SOURCE_SHA256`:
+
+```bash
+sudo env \
+  DOCKER_MIRROR_MODE=auto \
+  RESTART_HELPER_MIRROR_IMAGES='registry.example.com/ztnet-custom@sha256:<64-hex-digest>' \
+  RESTART_HELPER_SOURCE_SHA256='<64-hex-source-sha256>' \
+  bash /path/to/verified-one-click-install.sh
+```
+
+`UPDATER_IMAGE` and `UPDATER_MIRROR_IMAGE` must also use immutable `@sha256` references. The installer rejects tag-only updater overrides before pulling or starting them.
+
+The legacy `ZTNET_MIRROR_IMAGE` option remains an explicit single-mirror alias and is prepended to `ZTNET_MIRROR_IMAGES`. `DOCKER_MIRROR_MODE=never` ignores every mirror setting.
+
+## Secure first start
+
+The web port binds to `127.0.0.1` by default. Create the first administrator through an SSH tunnel before exposing the service:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 user@your-server
+```
+
+Open `http://127.0.0.1:3000` locally through that tunnel and register the intended administrator. For an OAuth-only fresh installation, set `INITIAL_ADMIN_EMAIL` before the first start. Better Auth and OAuth user creation will refuse to assign the first administrator role to any other normalized email.
+
+For a reverse proxy on the same host, keep `PUBLIC_BIND=127.0.0.1` and set `NEXTAUTH_URL` to the external HTTPS URL. Set `RATE_LIMIT_TRUST_PROXY=true` only when every request reaches ZTNET through a trusted proxy that removes and rewrites `X-Forwarded-For`. Otherwise clients could spoof the address used for rate limiting.
+
+A non-loopback bind is an explicit opt-in and requires an HTTPS `NEXTAUTH_URL`. It still exposes the backend HTTP port, so restrict that port to the trusted proxy with the host firewall and complete administrator bootstrap first.
 
 ## Common options
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo env \
+sudo env \
   APP_NAME=ztnet-custom \
   INSTALL_DIR=/opt/ztnet-custom \
   HTTP_PORT=3000 \
-  NEXTAUTH_URL=http://your-server-ip:3000 \
+  PUBLIC_BIND=127.0.0.1 \
+  NEXTAUTH_URL=https://ztnet.example.com \
+  INITIAL_ADMIN_EMAIL=owner@example.com \
   ZTNET_IMAGE=ghcr.io/csbsgyl/ztnet-custom:latest \
-  bash
+  bash /path/to/verified-one-click-install.sh
 ```
 
 Supported environment variables:
@@ -185,36 +195,40 @@ Supported environment variables:
 | --- | --- | --- |
 | `APP_NAME` | `ztnet-custom` | Compose project/container prefix. |
 | `INSTALL_DIR` | `/opt/${APP_NAME}` | Directory for generated `.env` and `docker-compose.yml`. |
-| `HTTP_PORT` | `3000` | Host port exposed by the app. |
-| `NEXTAUTH_URL` | Auto-detected `http://<host>:<port>` | Public URL used by auth callbacks. Set this explicitly behind a domain or reverse proxy. |
-| `PUBLIC_HOST` | empty | Hostname/IP used only when auto-generating `NEXTAUTH_URL`. |
+| `HTTP_PORT` | `3000` | Host port used on `PUBLIC_BIND`. |
+| `PUBLIC_BIND` | `127.0.0.1` | Host address for the web port. Non-loopback values must be explicitly supplied with an HTTPS `NEXTAUTH_URL`. |
+| `NEXTAUTH_URL` | `http://127.0.0.1:<port>` | Canonical URL used by authentication callbacks. Use the external HTTPS URL behind a reverse proxy. |
+| `INITIAL_ADMIN_EMAIL` | empty | On a fresh OAuth-only deployment, restrict first-admin creation to this normalized email. |
+| `RATE_LIMIT_TRUST_PROXY` | `false` | Trust proxy-supplied client IP headers only when a trusted proxy overwrites them for every request. |
 | `ZTNET_IMAGE` | `ghcr.io/csbsgyl/ztnet-custom:latest` | App image. Override this to deploy another build. |
 | `ZEROTIER_IMAGE` | `zyclonite/zerotier:1.14.2` | ZeroTier service image. |
 | `POSTGRES_IMAGE` | `postgres:15.2-alpine` | PostgreSQL image. |
 | `POSTGRES_PASSWORD` | random | Database password. |
 | `NEXTAUTH_SECRET` | random | Auth encryption/signing secret. |
 | `APP_SUBNET` | `172.31.255.0/29` | Internal Docker bridge subnet. |
-| `INSTALL_DOCKER` | `auto` | If Docker is missing, install it via `get.docker.com`. Set `0` to disable. |
-| `DOCKER_MIRROR_MODE` | `auto` | Registry strategy: `auto`, `always`, or `never`. |
-| `DOCKER_MIRROR_URL` | `https://docker.xiaohangyun.org` | Registry mirror used for automatic fallback. |
+| `INSTALL_DOCKER` | `0` | Do not install Docker remotely. Set `auto` only to explicitly trust Docker's convenience installer. |
+| `DOCKER_MIRROR_MODE` | `never` | Registry strategy: `never`, `auto` (source first), or `always` (mirror first). |
+| `DOCKER_MIRROR_URL` | `https://docker.xiaohangyun.org` | Inactive unless mirror mode is explicitly enabled; applies only to eligible Docker Hub images. |
 | `DOCKER_PULL_TIMEOUT` | `0` | Maximum seconds for each `docker pull`; `0` allows slow image downloads to finish. |
 | `REGISTRY_PROBE_TIMEOUT` | `8` | Maximum seconds for each registry health probe. |
-| `ZTNET_MIRROR_IMAGES` | Four verified GHCR proxies | Comma-separated ZTNET image candidates, tried before the source image. |
+| `ZTNET_MIRROR_IMAGES` | empty | Explicit comma-separated ZTNET mirror candidates. |
 | `ZTNET_MIRROR_IMAGE` | empty | Legacy single candidate prepended to `ZTNET_MIRROR_IMAGES`. |
-| `ZEROTIER_MIRROR_IMAGE` | auto-generated | Override the mirror image selected for ZeroTier. |
-| `POSTGRES_MIRROR_IMAGE` | auto-generated | Override the mirror image selected for PostgreSQL. |
+| `ZEROTIER_MIRROR_IMAGE` | empty | Explicit ZeroTier mirror image. |
+| `POSTGRES_MIRROR_IMAGE` | empty | Explicit PostgreSQL mirror image. |
 | `AUTO_UPDATE` | `true` | Enable the scoped background updater for ZTNET only. |
+| `COMPOSE_PROFILES` | `auto-update` in `.env.example` | Static Compose only: create the updater service. Clear it together with `AUTO_UPDATE=false` to remove the updater. |
 | `AUTO_UPDATE_INTERVAL` | `3600` | Seconds between image digest checks; minimum `60`. |
 | `AUTO_UPDATE_CLEANUP` | `false` | Remove replaced images after a successful update. |
 | `UPDATE_API_URL` | `http://updater:8080` | Private Compose-network URL used by the admin update page. |
 | `UPDATE_API_TOKEN` | random | Private token shared by ZTNET and Watchtower; generated once and preserved. |
 | `RESTART_API_URL` | `http://restart-helper:8081` | Internal-only URL for the fixed ZeroTier restart operation. |
-| `RESTART_API_TOKEN` | random | Separate Bearer token shared by ZTNET and the restart helper; at least 32 characters, generated once and preserved. |
-| `RESTART_HELPER_IMAGE` | `ghcr.io/csbsgyl/ztnet-custom:ops-latest` | Minimal image containing only the fixed restart helper and its Node runtime. |
-| `RESTART_HELPER_MIRROR_IMAGES` | fork mirror list | Comma-separated fallback images used only for the restart helper. |
+| `RESTART_API_TOKEN` | random | Separate Bearer token shared by ZTNET and the restart helper; at least 32 characters, different from `UPDATE_API_TOKEN`, generated once and preserved. |
+| `RESTART_HELPER_IMAGE` | official `@sha256:b368...cb84` | Immutable minimal restart-helper image. Tag-only references are rejected. |
+| `RESTART_HELPER_SOURCE_SHA256` | `1038d5e1...28fa0` | Expected SHA-256 of `/app/container-ops.mjs`, verified before deployment. |
+| `RESTART_HELPER_MIRROR_IMAGES` | empty | Explicit digest-pinned helper mirrors; each must pass the same source verification. |
 | `BACKUP_DIR` | `/app/backups` | Persistent in-container path for server-side backup archives. |
-| `UPDATER_IMAGE` | `nickfedor/watchtower:1.19.0` | Background updater image. |
-| `UPDATER_MIRROR_IMAGE` | auto-generated | Override the Docker mirror image selected for the updater. |
+| `UPDATER_IMAGE` | `nickfedor/watchtower@sha256:c1df...3bdf` | Digest-pinned background updater image. Installer overrides must also use `@sha256`. |
+| `UPDATER_MIRROR_IMAGE` | empty | Explicit updater mirror; the installer requires an `@sha256` reference. |
 
 ## Operational commands
 
@@ -230,10 +244,10 @@ docker compose up -d
 
 ## Troubleshooting slow pulls
 
-Installer versions before `2026-07-14` stopped a `docker pull` after 300 seconds even when layers were still downloading. The current installer has no total pull deadline by default. Rerun it and Docker will reuse already downloaded layers:
+Installer versions before `2026-07-14` stopped a `docker pull` after 300 seconds even when layers were still downloading. The current installer has no total pull deadline by default. Rerun the verified local installer and Docker will reuse already downloaded layers:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/csbsgyl/ztnet-custom/main/deploy/one-click-install.sh | sudo bash
+sudo bash /path/to/verified-one-click-install.sh
 ```
 
 Set `DOCKER_PULL_TIMEOUT` only when a hard total deadline is explicitly required. It is not a network-idle timeout.
@@ -243,15 +257,16 @@ Candidate fallback begins after the current `docker pull` exits. If a broken net
 ## Notes
 
 - `NEXTAUTH_URL` should be the preferred public URL used for OAuth callbacks and generated links. Credential sign-in also accepts the exact same-origin domain forwarded by a reverse proxy through `Host`, `X-Forwarded-Host`, and `X-Forwarded-Proto`.
+- Keep `RATE_LIMIT_TRUST_PROXY=false` unless a trusted proxy overwrites forwarded client IP headers for every request.
 - Linux hosts must have `/dev/net/tun` available for ZeroTier.
-- The first registered user becomes the administrator.
-- Keep `.env` private. It contains the database password and auth secret.
-- All acceleration endpoints are third-party services. Override `ZTNET_MIRROR_IMAGES`, change `DOCKER_MIRROR_URL`, or use `DOCKER_MIRROR_MODE=never` if their trust or availability changes.
-- `github.xiaohangyun.org` accelerates GitHub file downloads only. It is not a Docker Registry and does not replace the GHCR image URL.
-- The GitHub accelerator is a third-party download proxy. Its response is checked against the committed installer in CI, but operators should still use only accelerators they trust.
-- If the GitHub accelerator reports a self-signed certificate, use the direct `raw.githubusercontent.com` command or wait for the accelerator certificate to recover. Do not bypass TLS verification unless the downloaded script is checked against a trusted SHA-256 value.
-- Automatic updates require mounting `/var/run/docker.sock` into the updater, which grants Docker daemon control. The updater is scoped and label-restricted to the ZTNET application and restart helper containers.
+- Keep the initial service on loopback until the intended administrator exists. OAuth-only deployments should set `INITIAL_ADMIN_EMAIL` before first start.
+- Keep `.env` private. It is created with mode `600` and contains database, authentication, update, and restart secrets. PostgreSQL receives only its three database variables rather than the full file.
+- Third-party download and registry proxies are outside the project trust boundary. They are never enabled automatically and must not be piped into a root shell.
+- Automatic updates require mounting `/var/run/docker.sock` into the updater, which grants Docker daemon control. The digest-pinned updater is scoped and label-restricted to the ZTNET application.
+- Static Compose creates the updater only when the `auto-update` profile is active. Clear `COMPOSE_PROFILES` and set `AUTO_UPDATE=false` together when disabling it.
 - The restart helper also mounts the Docker socket, but exposes only one fixed, label-scoped ZeroTier restart operation over an internal network. Its port `8081` is not published on the host.
+- The restart helper is digest-pinned, source-verified, and intentionally excluded from Watchtower. Update its image and source digests together after reviewing a release.
+- Static Compose does not execute the installer's image validators; its helper source checksum is operator review metadata. Keep its pinned privileged-image defaults unless replacements are independently verified.
 - The ZTNET web container does not receive the Docker socket. Manual update and restart requests use separate token-protected endpoints and tokens; neither operations port is published on the host.
 - Automatic updates require a mutable image tag such as `latest`; digest-pinned images intentionally do not move to newer releases.
 - Keep database backups. Application releases may include database migrations even though the PostgreSQL container itself is not updated.
